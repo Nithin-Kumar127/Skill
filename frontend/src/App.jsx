@@ -22,7 +22,6 @@ import FreelancerApplyVerification from "./pages/FreelancerApplyVerification";
 // New Security Feature System Pages
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
-import VerifyEmailView from "./pages/VerifyEmailView";
 
 function App() {
   return (
@@ -38,14 +37,16 @@ function App() {
             {/* Public Entry Interfaces For Core Security Operations */}
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password/:token" element={<ResetPassword />} />
-            <Route path="/verify-email/:token" element={<VerifyEmailView />} />
 
             {/* Protected Routes Namespace Framework */}
             <Route element={<PrivateRoute />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/overview" element={<Overview />} />
               <Route path="/my-work" element={<MyWork />} />
-              <Route path="/verify" element={<FreelancerApplyVerification />} />
+              <Route
+                path="/verify-notice"
+                element={<FreelancerApplyVerification />}
+              />
               <Route path="/create-gig" element={<CreateGig />} />
               <Route path="/marketplace" element={<Marketplace />} />
               <Route path="/gigs/:id" element={<GigDetails />} />

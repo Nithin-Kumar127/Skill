@@ -35,6 +35,11 @@ const getUserProposalForGig = async (gigId, token) => {
   const response = await axios.get(`${API_URL}/my/${gigId}`, config);
   return response.data;
 };
+const updateProposal = async (proposalId, proposalData, token) => {
+  const config = { headers: { Authorization: `Bearer ${token}` } };
+  const response = await axios.patch(`${API_URL}/${proposalId}`, proposalData, config);
+  return response.data;
+};
 
 const getGigProposals = async (gigId, token) => {
   const config = {
@@ -64,6 +69,7 @@ const proposalService = {
   submitProposal,
   getUserProposalForGig,
   getGigProposals,
+  updateProposal,
   acceptProposal,
 };
 

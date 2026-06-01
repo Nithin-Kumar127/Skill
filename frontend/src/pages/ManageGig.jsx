@@ -12,10 +12,18 @@ import {
 import {
   getGigProposals,
   acceptProposal,
+  updateProposalStatus,
   reset as resetProposals,
 } from "../features/proposals/proposalSlice";
 import { createPaymentOrder, verifyPaymentSignature, resetPaymentState } from "../features/payments/paymentSlice";
-import { fetchGigMessages, receiveSocketMessage, clearUnreadCount, resetChatState } from "../features/messages/messageSlice";
+import { 
+  fetchGigMessages, 
+  receiveSocketMessage, 
+  clearUnreadCount, 
+  resetChatState,
+  markMessagesAsRead,
+  markAsReadLocal
+} from "../features/messages/messageSlice";
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -46,10 +54,12 @@ export default function ManageGig() {
   const [activeFormId, setActiveFormId] = useState(null);
   const [typedMessage, setTypedMessage] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isOtherTyping, setIsOtherTyping] = useState(false);
 
   const socketRef = useRef(null);
   const messageEndRef = useRef(null);
   const isChatOpenRef = useRef(isChatOpen);
+  const typingTimeoutRef = useRef(null);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -85,20 +95,29 @@ export default function ManageGig() {
 
     socketRef.current.on("message_received", (msgDocument) => {
       if (String(msgDocument.gig).trim() === String(id).trim()) {
+        // 🌟 UPDATED: Pass the message AND currentUserId to Redux
         dispatch(receiveSocketMessage({
-          ...msgDocument,
+          message: msgDocument,
+          currentUserId: currentUserId,
           isMinimized: !isChatOpenRef.current
         }));
+      }
+    });
+
+    socketRef.current.on("typing", (data) => {
+      if (data.gigId === id && data.userId !== currentUserId) {
+        setIsOtherTyping(data.isTyping);
       }
     });
 
     return () => {
       if (socketRef.current) {
         socketRef.current.off("message_received");
+        socketRef.current.off("typing");
         socketRef.current.disconnect();
       }
     };
-  }, [id, dispatch]);
+  }, [id, dispatch, currentUserId]);
 
   useEffect(() => {
     if (isChatOpen) {
@@ -109,8 +128,20 @@ export default function ManageGig() {
   const toggleChatDrawer = () => {
     if (!isChatOpen) {
       dispatch(clearUnreadCount());
+      // 🌟 UPDATED: Pass currentUserId so we only mark incoming messages as read
+      dispatch(markAsReadLocal(currentUserId)); 
+      dispatch(markMessagesAsRead(id));
     }
     setIsChatOpen(!isChatOpen);
+  };
+
+  const handleTyping = (e) => {
+    setTypedMessage(e.target.value);
+    socketRef.current.emit("typing", { gigId: id, isTyping: true });
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketRef.current.emit("typing", { gigId: id, isTyping: false });
+    }, 2000);
   };
 
   const handleSendMessage = (e) => {
@@ -121,6 +152,7 @@ export default function ManageGig() {
       gigId: id,
       content: typedMessage.trim(),
     });
+    socketRef.current.emit("typing", { gigId: id, isTyping: false });
     setTypedMessage("");
   };
 
@@ -133,6 +165,14 @@ export default function ManageGig() {
           dispatch(getGigProposals(id));
           if (role === "client") dispatch(getGigs());
         });
+    }
+  };
+
+  const handleStatusUpdate = (proposalId, newStatus) => {
+    if (window.confirm(`Are you sure you want to mark this proposal as ${newStatus}?`)) {
+      dispatch(updateProposalStatus({ proposalId, status: newStatus }))
+        .unwrap()
+        .then(() => dispatch(getGigProposals(id)));
     }
   };
 
@@ -262,7 +302,6 @@ export default function ManageGig() {
         }
       ];
 
-  // REAL-TIME MATHEMATICAL PROGRESS PROGRESS CALCULATOR
   const completedCount = projectMilestones.filter(m => m.paymentStatus === "completed").length;
   const totalCount = projectMilestones.length;
   const calculatedPercentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -399,21 +438,45 @@ export default function ManageGig() {
           </div>
         </div>
       ) : (
+        
         /* PROPOSAL SELECTION INTERFACE */
         <div className="bg-white border border-gray-200 shadow-sm rounded-2xl overflow-hidden p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Proposals Received</h2>
           {proposals && proposals.length > 0 ? (
             <div className="space-y-4">
               {proposals.map((proposal) => (
-                <div key={proposal._id} className="border border-gray-200/80 rounded-2xl p-4 hover:border-gray-300 transition">
+                <div key={proposal._id} className={`border rounded-2xl p-4 transition ${proposal.status === 'rejected' ? 'border-gray-200 bg-gray-50 opacity-70' : 'border-gray-200/80 hover:border-gray-300'}`}>
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-base font-bold text-gray-900">{proposal.freelancer?.name || "Anonymous Bidder"}</h3>
-                    <span className="rounded-xl px-2 py-0.5 bg-yellow-50 border border-yellow-200 text-yellow-800 text-[10px] font-extrabold uppercase tracking-wide">{proposal.status}</span>
+                    <span className={`rounded-xl px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide border ${
+                      proposal.status === 'accepted' ? 'bg-green-50 text-green-700 border-green-200' :
+                      proposal.status === 'rejected' ? 'bg-gray-100 text-gray-500 border-gray-200' :
+                      proposal.status === 'negotiating' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                      'bg-yellow-50 text-yellow-800 border-yellow-200'
+                    }`}>
+                      {proposal.status}
+                    </span>
                   </div>
-                  <p className="text-xs text-gray-500 mb-3">Bid Offer Amount: <span className="font-bold text-green-600">${proposal.bidAmount}</span></p>
+                  
+                  <div className="flex gap-4 mb-3">
+                    <p className="text-xs text-gray-500">Bid Amount: <span className="font-bold text-green-600">${proposal.bidAmount}</span></p>
+                    <p className="text-xs text-gray-500">Timeline: <span className="font-bold text-blue-600">{proposal.estimatedCompletionTime || "Not specified"}</span></p>
+                  </div>
+                  
                   <p className="text-xs text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed font-medium">"{proposal.coverLetter}"</p>
-                  {proposal.status === "pending" && selectedGig.status === "open" && (
-                    <button onClick={() => handleAcceptProposal(proposal._id)} className="mt-4 px-4 py-2 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-xl transition cursor-pointer shadow-sm shadow-green-600/10">Accept Proposal</button>
+                  
+                  {(proposal.status === "pending" || proposal.status === "negotiating") && selectedGig.status === "open" && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button onClick={() => handleAcceptProposal(proposal._id)} className="px-4 py-2 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-xl transition cursor-pointer shadow-sm">
+                        Accept & Hire
+                      </button>
+                      <button onClick={() => handleStatusUpdate(proposal._id, 'negotiating')} className="px-4 py-2 text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-xl transition cursor-pointer">
+                        Counter / Negotiate
+                      </button>
+                      <button onClick={() => handleStatusUpdate(proposal._id, 'rejected')} className="px-4 py-2 text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition cursor-pointer">
+                        Decline Bid
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -467,6 +530,13 @@ export default function ManageGig() {
                           isMe ? "bg-blue-600 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none border border-gray-200"
                         }`}>
                           <p className="leading-relaxed break-words font-medium">{msg.content}</p>
+                          
+                          {/* 🌟 Read Receipts UI */}
+                          {isMe && (
+                            <div className="text-[9px] opacity-70 text-right mt-0.5 font-bold">
+                              {msg.isRead ? "✓✓" : "✓"}
+                            </div>
+                          )}
                         </div>
                         <span className="text-[9px] text-gray-400 mt-1 px-1">
                           {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
@@ -482,13 +552,18 @@ export default function ManageGig() {
                 <div ref={messageEndRef} />
               </div>
 
-              <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-100 bg-white flex gap-2 shrink-0">
+              {/* 🌟 Typing Indicator UI */}
+              {isOtherTyping && (
+                <div className="px-4 py-1 text-[10px] italic text-gray-400">Other user is typing...</div>
+              )}
+
+              <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-100 bg-white flex gap-2 shrink-0 items-center">
                 <input 
                   type="text"
                   required
                   placeholder="Type your message here..."
                   value={typedMessage}
-                  onChange={(e) => setTypedMessage(e.target.value)}
+                  onChange={handleTyping}
                   className="flex-1 text-xs rounded-xl border border-gray-300 px-3 py-2 bg-white text-gray-900 outline-none focus:border-blue-500 font-medium"
                 />
                 <button type="submit" className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition shadow cursor-pointer">

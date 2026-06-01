@@ -4,19 +4,11 @@ import { useSelector } from 'react-redux';
 export default function PrivateRoute() {
   const { user } = useSelector((state) => state.auth);
 
+  // If there is no user logged in, kick them back to the login page
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  // Extract the true nested user record structure matching your backend public profile schema
-  const currentUser = user?.user || user;
-  
-  // 🔐 EMAIL SECURITY GATING CHECK:
-  // If the profile document explicitly states email verification is outstanding,
-  // we redirect them to a clear notice dashboard page instead of loading internal tools.
-  if (currentUser && currentUser.isEmailVerified === false) {
-    return <Navigate to="/verify-notice" replace />;
-  }
-
+  // 🌟 THE MAGIC FIX: Outlet tells React to render the child page (Dashboard, Profile, etc.)
   return <Outlet />;
 }

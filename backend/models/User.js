@@ -45,27 +45,20 @@ const userSchema = new mongoose.Schema(
     // EMAIL VERIFICATION PROPERTIES
     isEmailVerified: {
       type: Boolean,
-      default: false,
-    },
-    emailVerificationToken: {
-      type: String,
-    },
-    emailVerificationExpire: {
-      type: Date,
+      default: true, // AUTO-VERIFIED ON SIGNUP NOW
     },
     // TWO-FACTOR AUTHENTICATION (2FA) PROPERTIES
     twoFactorEnabled: {
       type: Boolean,
       default: false,
     },
-    twoFactorSecret: {
+    twoFactorOtp: {
       type: String,
-      select: false, // Protected defensively so it doesn't leak into standard user payload searches
+      select: false, // Hashed 6-digit code
     },
-    twoFactorBackupCodes: {
-      type: [String],
-      select: false, // Kept hidden unless explicitly requested during emergency sign-ins
-      default: [],
+    twoFactorOtpExpire: {
+      type: Date,
+      select: false,
     },
     // ADMINISTRATIVE VERIFICATION ADDITIONS
     isVerified: {

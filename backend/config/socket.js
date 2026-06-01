@@ -3,7 +3,6 @@ const jwt = require("jsonwebtoken");
 
 const { getGigChatContext, isChatParticipant } = require("../utils/gigChatAccess");
 const User = require("../models/User");
-// INTEGRATION: Import your native Message model layout to store logs permanently
 const Message = require("../models/Message");
 
 function roomNameForGig(gigId) {
@@ -96,11 +95,13 @@ function initSocket(httpServer, options = {}) {
 
     socket.on("send_message", async (payload) => {
       try {
-        const gigId = payload?.gigId;
-        const textContent = payload?.content;
+        // 🌟 UPDATED: Destructure file properties for upcoming feature
+        const { gigId, content: textContent, fileUrl, fileType } = payload;
 
         if (!gigId || typeof gigId !== "string") return;
-        if (!textContent || !textContent.trim()) return;
+        
+        // Allow sending if there is either text OR a file
+        if ((!textContent || !textContent.trim()) && !fileUrl) return;
 
         const chatContext = await getGigChatContext(gigId);
 
@@ -119,18 +120,19 @@ function initSocket(httpServer, options = {}) {
           ? chatContext.freelancerId
           : chatContext.clientId;
 
-        // FIXED STRUCTURAL KEYS: Aligned 'receiver' key with your Message.js model parameters
         const savedMessage = await Message.create({
           gig: gigId,
           sender: socket.userId,
           receiver: targetReceiverId,
-          content: textContent.trim(),
+          content: textContent ? textContent.trim() : null,
+          fileUrl: fileUrl || null,
+          fileType: fileType || null,
           isRead: false,
         });
 
         const senderUser = await User.findById(socket.userId).select("name role").lean();
 
-        // Broadcast the fully saved message document to the entire room (including sender & recipient)
+        // 🌟 FIXED: Broadcast now explicitly includes isRead: false so the frontend filters it correctly
         io.to(roomNameForGig(gigId)).emit("message_received", {
           _id: savedMessage._id,
           gig: savedMessage.gig,
@@ -142,6 +144,9 @@ function initSocket(httpServer, options = {}) {
           senderName: senderUser?.name || "Unknown",
           receiver: savedMessage.receiver,
           content: savedMessage.content,
+          fileUrl: savedMessage.fileUrl,
+          fileType: savedMessage.fileType,
+          isRead: savedMessage.isRead, // <-- Critical fix for the unread badge
           createdAt: savedMessage.createdAt,
         });
 
@@ -178,10 +183,6 @@ function initSocket(httpServer, options = {}) {
       }
     });
 
-    /**
-     * Server-side fanout to a specific user's private room.
-     * Payload: { recipientId: string, event?: string, data: any }
-     */
     socket.on("send_notification", async (payload, ack) => {
       try {
         const recipientId = payload?.recipientId;

@@ -46,7 +46,7 @@ export default function Register() {
     // Fires instantly when standard registration completes OR when Google OAuth resolves
     if (isSuccess) {
       toast.success(
-        "Account created successfully! A verification link has been sent to your Gmail inbox.",
+        "Account created successfully! Welcome to SkillSphere.",
       );
 
       // Clear internal form fields cleanly

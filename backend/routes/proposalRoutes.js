@@ -3,6 +3,7 @@ const express = require("express");
 const { protect, authorizeRoles } = require("../middleware/authMiddleware");
 const {
   submitProposal,
+  updateProposal, // 🌟 IMPORTED NEW FUNCTION
   getGigProposals,
   updateProposalStatus,
   getUserProposalForGig,
@@ -65,6 +66,10 @@ router.get("/my-metrics", protect, authorizeRoles(["freelancer"]), getFreelancer
 // Basic proposal actions
 router.get("/", protect, authorizeRoles(["freelancer"]), getUserProposals);
 router.post("/", protect, authorizeRoles(["freelancer"]), submitProposal);
+
+// 🌟 NEW ROUTE: Freelancer updates their counter-offer
+router.patch("/:id", protect, authorizeRoles(["freelancer"]), updateProposal);
+
 router.get("/gig/:gigId", protect, authorizeRoles(["client"]), getGigProposals);
 
 router.get(

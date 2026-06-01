@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { NavLink } from "react-router-dom";
 import { getGigs, reset as resetGigs } from "../features/gigs/gigSlice";
-import { acceptProposal } from "../features/proposals/proposalSlice";
+import { acceptProposal, updateProposalStatus } from "../features/proposals/proposalSlice"; // 🌟 ADDED updateProposalStatus
 
 export default function Proposals() {
   const dispatch = useDispatch();
@@ -44,12 +44,22 @@ export default function Proposals() {
   const handleAccept = async (proposalId) => {
     if (window.confirm("Are you sure you want to hire this freelancer? This will reject all other bids for this gig.")) {
       try {
-        // Trigger the backend update
         await dispatch(acceptProposal(proposalId)).unwrap();
-        // Re-fetch the gigs to instantly update the UI with the fresh data from Atlas
         dispatch(getGigs());
       } catch (error) {
         alert("Failed to accept proposal: " + error);
+      }
+    }
+  };
+
+  // 🌟 NEW: Action Handler for Negotiate / Reject
+  const handleStatusUpdate = async (proposalId, newStatus) => {
+    if (window.confirm(`Are you sure you want to mark this proposal as ${newStatus}?`)) {
+      try {
+        await dispatch(updateProposalStatus({ proposalId, status: newStatus })).unwrap();
+        dispatch(getGigs());
+      } catch (error) {
+        alert(`Failed to update proposal status: ${error}`);
       }
     }
   };
@@ -87,10 +97,12 @@ export default function Proposals() {
           {sortedBids.map((proposal) => (
             <div
               key={proposal._id}
-              className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+              className={`overflow-hidden rounded-2xl border transition-all ${
+                proposal.status === 'rejected' ? 'border-gray-200 bg-gray-50 opacity-70' : 'border-gray-200 bg-white shadow-sm hover:shadow-md'
+              }`}
             >
               {/* Card Header */}
-              <div className="border-b border-gray-100 bg-gray-50 px-6 py-4">
+              <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-gray-900">
@@ -100,10 +112,12 @@ export default function Proposals() {
                       Applying for: <span className="text-gray-700">{proposal.gig?.title}</span>
                     </p>
                   </div>
-                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold capitalize ${
-                    proposal.status === 'accepted' ? 'bg-green-100 text-green-800' : 
-                    proposal.status === 'rejected' ? 'bg-gray-200 text-gray-800' : 
-                    'bg-blue-100 text-blue-800'
+                  {/* 🌟 UPGRADED STATUS BADGES */}
+                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold uppercase tracking-wide border ${
+                    proposal.status === 'accepted' ? 'bg-green-50 text-green-700 border-green-200' : 
+                    proposal.status === 'rejected' ? 'bg-gray-100 text-gray-500 border-gray-200' : 
+                    proposal.status === 'negotiating' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                    'bg-yellow-50 text-yellow-800 border-yellow-200'
                   }`}>
                     {proposal.status}
                   </span>
@@ -112,11 +126,18 @@ export default function Proposals() {
 
               {/* Card Body */}
               <div className="px-6 py-5">
-                <div className="mb-4 flex items-center justify-between">
+                {/* 🌟 UPGRADED: Added Timeline Display */}
+                <div className="mb-4 flex flex-wrap items-center gap-4">
                   <span className="inline-flex items-center rounded bg-green-50 px-3 py-1.5 text-sm font-bold text-green-700 ring-1 ring-inset ring-green-600/20">
                     Bid Amount: ${proposal.bidAmount}
                   </span>
+                  {proposal.estimatedCompletionTime && (
+                    <span className="inline-flex items-center rounded bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                      Timeline: {proposal.estimatedCompletionTime}
+                    </span>
+                  )}
                 </div>
+                
                 <div className="rounded-xl bg-gray-50 p-4 border border-gray-100">
                   <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Cover Letter</h4>
                   <p className="whitespace-pre-wrap text-sm text-gray-700 italic">"{proposal.coverLetter}"</p>
@@ -124,32 +145,32 @@ export default function Proposals() {
               </div>
 
               {/* Card Footer */}
-              <div className="border-t border-gray-100 bg-gray-50 px-6 py-4 flex justify-end gap-3">
+              <div className="border-t border-gray-100 bg-gray-50/50 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <NavLink
                   to={`/manage-gig/${proposal.gig?._id}`}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition"
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition w-full sm:w-auto text-center"
                 >
                   View Gig Details
                 </NavLink>
                 
-                {/* Dynamic Accept Button */}
-                <button 
-                  onClick={() => handleAccept(proposal._id)}
-                  disabled={proposal.status === 'accepted' || proposal.status === 'rejected'}
-                  className={`rounded-lg px-6 py-2 text-sm font-bold text-white shadow-sm transition ${
-                    proposal.status === 'accepted' 
-                      ? 'bg-green-600 cursor-not-allowed'
-                      : proposal.status === 'rejected'
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  }`}
-                >
-                  {proposal.status === 'accepted' 
-                    ? 'Hired' 
-                    : proposal.status === 'rejected' 
-                    ? 'Rejected' 
-                    : 'Accept Proposal'}
-                </button>
+                {/* 🌟 UPGRADED ACTION CONTROLS */}
+                {(proposal.status === "pending" || proposal.status === "negotiating") && proposal.gig?.status === "open" ? (
+                  <div className="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
+                    <button onClick={() => handleAccept(proposal._id)} className="px-4 py-2 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-xl transition cursor-pointer shadow-sm">
+                      Accept & Hire
+                    </button>
+                    <button onClick={() => handleStatusUpdate(proposal._id, 'negotiating')} className="px-4 py-2 text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-xl transition cursor-pointer">
+                      Negotiate
+                    </button>
+                    <button onClick={() => handleStatusUpdate(proposal._id, 'rejected')} className="px-4 py-2 text-xs font-bold text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-xl transition cursor-pointer">
+                      Reject
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs font-semibold text-gray-500 italic">
+                    {proposal.gig?.status !== "open" ? `Gig is ${proposal.gig?.status}` : "No actions available"}
+                  </span>
+                )}
               </div>
             </div>
           ))}

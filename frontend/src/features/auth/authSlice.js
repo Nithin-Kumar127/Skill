@@ -194,27 +194,7 @@ export const authSlice = createSlice({
         state.isError = true;
         state.message = action.payload;
       })
-      
-      // Email Verification Lifecycle
-      .addCase(verifyEmail.pending, (state) => {
-        state.isLoading = true;
-      })
-      .addCase(verifyEmail.fulfilled, (state, action) => {
-        state.isLoading = false;
-        state.isSuccess = true;
-        // Dynamically update state user fields if user is currently active
-        if (state.user) {
-          state.user.isEmailVerified = true;
-        } else if (action.payload && action.payload.user) {
-          state.user = action.payload.user;
-        }
-      })
-      .addCase(verifyEmail.rejected, (state, action) => {
-        state.isLoading = false;
-        state.isError = true;
-        state.message = action.payload;
-      })
-      
+    
       // 2FA Code Validation Lifecycle
       .addCase(verify2FA.pending, (state) => {
         state.isLoading = true;

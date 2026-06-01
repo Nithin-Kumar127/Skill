@@ -1,10 +1,10 @@
 // backend/server.js
-const http = require('http'); 
-require('dotenv').config(); 
+const http = require("http");
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-
+const path = require("path");
 const connectDatabase = require("./config/db");
 const initSocket = require("./config/socket");
 const authRoutes = require("./routes/authRoutes");
@@ -34,6 +34,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Basic health/status endpoint (no feature logic)
 app.get("/api/status", (req, res) => {

@@ -26,7 +26,7 @@ const milestoneSchema = new mongoose.Schema(
       trim: true,
     },
   },
-  { _id: true },
+  { _id: true }
 );
 
 const gigSchema = new mongoose.Schema(
@@ -47,6 +47,14 @@ const gigSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    category: {
+      type: String,
+      trim: true,
+    },
+    estimatedDuration: {
+      type: String,
+      trim: true,
+    },
     skillsRequired: {
       type: [String],
       default: [],
@@ -58,6 +66,15 @@ const gigSchema = new mongoose.Schema(
     },
     milestones: {
       type: [milestoneSchema],
+      default: [],
+    },
+    attachments: {
+      type: [String],
+      default: [],
+    },
+    invitedFreelancers: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
       default: [],
     },
     status: {
@@ -74,16 +91,13 @@ const gigSchema = new mongoose.Schema(
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  },
+  }
 );
 
 gigSchema.virtual("proposals", {
-  ref: "Proposal",  
+  ref: "Proposal",
   localField: "_id",
   foreignField: "gig",
 });
-
-gigSchema.set("toJSON", { virtuals: true });
-gigSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("Gig", gigSchema);

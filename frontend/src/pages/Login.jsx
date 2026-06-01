@@ -108,7 +108,7 @@ export default function Login() {
             </h1>
             <p className="mt-2 text-sm text-gray-600">
               {requires2FA
-                ? "Enter the 6-digit identification code from your mobile authenticator app."
+                ? "Enter the 6-digit code we just sent to your email address."
                 : "Welcome back. Enter your details to continue."}
             </p>
           </div>

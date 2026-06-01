@@ -26,6 +26,18 @@ const certificationSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// 🌟 NEW: Work Experience Timeline Schema
+const workExperienceSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    company: { type: String, required: true, trim: true },
+    startDate: { type: Date, required: true },
+    endDate: { type: Date }, // Leave empty if currently working here
+    description: { type: String, trim: true, maxlength: 1000 },
+  },
+  { _id: false }
+);
+
 const freelancerProfileSchema = new mongoose.Schema(
   {
     id: {
@@ -48,6 +60,11 @@ const freelancerProfileSchema = new mongoose.Schema(
     },
     certifications: {
       type: [certificationSchema],
+      default: [],
+    },
+    // 🌟 NEW: Added to main profile
+    workExperience: {
+      type: [workExperienceSchema],
       default: [],
     },
     availability: {

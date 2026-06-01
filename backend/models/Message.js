@@ -22,9 +22,20 @@ const messageSchema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: true,
       trim: true,
       maxlength: [8000, "Message content is too long"],
+      // Relaxed requirement to allow file-only messages
+      required: function() { return !this.fileUrl; } 
+    },
+    // 🌟 NEW: Added for File Sharing
+    fileUrl: {
+      type: String,
+      default: null,
+    },
+    // 🌟 NEW: Added to distinguish between images, docs, etc.
+    fileType: {
+      type: String,
+      default: null,
     },
     isRead: {
       type: Boolean,

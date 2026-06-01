@@ -24,16 +24,21 @@ const proposalSchema = new mongoose.Schema(
       required: true,
       min: [0, "bidAmount cannot be negative"],
     },
+    estimatedCompletionTime: {
+      type: String,
+      required: true,
+      default: "Not specified", // 🌟 THE FIX: Prevents crashes on old legacy data
+      trim: true,
+    },
     status: {
       type: String,
-      // 🌟 UPGRADED ENUM: Added "submitted" and "completed" states
-      enum: ["pending", "accepted", "rejected", "submitted", "completed"],
+      enum: ["pending", "accepted", "rejected", "submitted", "completed", "negotiating"],
       default: "pending",
     },
   },
   {
     timestamps: true,
-  },
+  }
 );
 
 proposalSchema.index({ gig: 1, freelancer: 1 }, { unique: true });

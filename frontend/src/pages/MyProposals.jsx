@@ -14,7 +14,6 @@ export default function MyProposals() {
 
   useEffect(() => {
     dispatch(getUserProposals());
-
     return () => {
       dispatch(reset());
     };
@@ -55,7 +54,6 @@ export default function MyProposals() {
       ) : proposals && proposals.length > 0 ? (
         <div className="space-y-4">
           {proposals.map((proposal) => {
-            // 🌟 DEFENSIVE ID EXTRACTION: Resolves object structures cleanly to string values
             const targetGigId = 
               proposal.gig?._id || 
               proposal.gig?.id || 
@@ -81,9 +79,9 @@ export default function MyProposals() {
                   </div>
 
                   <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100 w-full sm:w-auto">
-                    {/* UPGRADED MULTI-STATE STATUS BADGE MAP */}
                     <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider border ${
                       proposal.status === "accepted" ? "bg-green-50 text-green-700 border-green-200" :
+                      proposal.status === "negotiating" ? "bg-purple-50 text-purple-700 border-purple-200" :
                       proposal.status === "submitted" ? "bg-orange-50 text-orange-700 border-orange-200" :
                       proposal.status === "completed" ? "bg-purple-50 text-purple-700 border-purple-200" :
                       proposal.status === "rejected" ? "bg-gray-50 text-gray-600 border-gray-200" :
@@ -92,13 +90,29 @@ export default function MyProposals() {
                       {proposal.status}
                     </span>
 
-                    {/* EXPOSED MULTI-STATE ENTRIES GATEWAY */}
-                    {(proposal.status === "accepted" || proposal.status === "submitted" || proposal.status === "completed") && targetGigId && (
+                    {/* 🌟 FIX: Smart Routing logic */}
+                    {(proposal.status === "accepted" || proposal.status === "submitted" || proposal.status === "completed" || proposal.status === "negotiating") && targetGigId && (
                       <button
-                        onClick={() => navigate(`/manage-gig/${targetGigId}`)}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow hover:bg-blue-700 transition cursor-pointer outline-none whitespace-nowrap"
+                        onClick={() => {
+                          if (proposal.status === "accepted" || proposal.status === "completed") {
+                            navigate(`/manage-gig/${targetGigId}`); // Go to workspace
+                          } else {
+                            navigate(`/gigs/${targetGigId}`); // Go to public gig page
+                          }
+                        }}
+                        className={`rounded-lg px-4 py-2 text-xs font-bold shadow transition cursor-pointer outline-none whitespace-nowrap ${
+                          proposal.status === "negotiating" 
+                          ? "bg-purple-600 text-white hover:bg-purple-700" 
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                        }`}
                       >
-                        {proposal.status === "completed" ? "View Details &rarr;" : "Enter Workspace &rarr;"}
+                        {proposal.status === "completed" 
+                          ? "View Past Workspace →" 
+                          : proposal.status === "accepted"
+                          ? "Enter Workspace →"
+                          : proposal.status === "negotiating" 
+                          ? "Edit / Counter-Offer →" 
+                          : "View Gig Details →"}
                       </button>
                     )}
                   </div>

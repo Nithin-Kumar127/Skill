@@ -1,13 +1,12 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-const { authenticator } = require("otplib");
 
 const User = require("../models/User");
 const FreelancerProfile = require("../models/FreelancerProfile");
 const ClientProfile = require("../models/ClientProfile");
 const generateToken = require("../utils/generateToken");
-const { sendAutomatedEmail } = require("../config/mail"); // Streamlined to use your unified automation exporter
+const { sendAutomatedEmail } = require("../config/mail");
 
 const BCRYPT_SALT_ROUNDS = 12;
 
@@ -23,56 +22,30 @@ function buildPublicUser(userDoc) {
 }
 
 /**
- * Register with email/password. Generates an email verification token,
- * issues live transactional verification mail messages, and maps workspace profiles.
+ * Register: Auto-verifies the user and sends a Welcome Email.
  */
 async function registerUser(req, res) {
   try {
     const { name, email, password, role } = req.body;
 
     if (!name || !email || !password || !role) {
-      return res.status(400).json({
-        message: "Name, email, password, and role are required.",
-      });
+      return res.status(400).json({ message: "Name, email, password, and role are required." });
     }
 
-    if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({
-        message: "Password must be at least 8 characters.",
-      });
+    if (password.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters." });
     }
 
     if (role === "admin") {
-      return res.status(403).json({
-        message:
-          "Admin accounts cannot be created through public registration.",
-      });
+      return res.status(403).json({ message: "Admin accounts cannot be created through public registration." });
     }
 
     if (role !== "client" && role !== "freelancer") {
-      return res.status(400).json({
-        message: "Role must be client or freelancer.",
-      });
+      return res.status(400).json({ message: "Role must be client or freelancer." });
     }
 
-    if (!process.env.JWT_SECRET) {
-      console.error("registerUser: JWT_SECRET is not configured");
-      return res.status(500).json({
-        message: "Server authentication is not configured.",
-      });
-    }
-
-    // Standardize input credentials mapping parameters
     const targetEmail = String(email).toLowerCase().trim();
     const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
-
-    // Generate Verification Token Pair
-    const verificationToken = crypto.randomBytes(20).toString("hex");
-    const hashedVerificationToken = crypto
-      .createHash("sha256")
-      .update(verificationToken)
-      .digest("hex");
-    const verificationExpire = Date.now() + 24 * 60 * 60 * 1000; // 24-hour token window
 
     const session = await mongoose.startSession();
     let savedUser = null;
@@ -81,17 +54,14 @@ async function registerUser(req, res) {
       session.startTransaction();
 
       const [user] = await User.create(
-        [
-          {
-            name,
-            email: targetEmail,
-            password: hashedPassword,
-            role,
-            emailVerificationToken: hashedVerificationToken,
-            emailVerificationExpire: verificationExpire,
-          },
-        ],
-        { session },
+        [{
+          name,
+          email: targetEmail,
+          password: hashedPassword,
+          role,
+          isEmailVerified: true, // 🌟 AUTO-VERIFIED
+        }],
+        { session }
       );
 
       if (role === "freelancer") {
@@ -101,119 +71,88 @@ async function registerUser(req, res) {
       }
 
       await session.commitTransaction();
-      savedUser = user; // Extract document safely to pass outside the transaction database pool
-    } catch (transactionError) {
+      savedUser = user;
+    } catch (error) {
       await session.abortTransaction();
-
-      if (transactionError.code === 11000) {
-        return res.status(409).json({
-          message: "An account with this email already exists.",
-        });
+      if (error.code === 11000) {
+        return res.status(409).json({ message: "An account with this email already exists." });
       }
-
-      throw transactionError;
+      throw error;
     } finally {
       await session.endSession();
     }
 
-    // 🌟 SAFE EXECUTION ZONE: Run network mail delivery outside database transactions
-    const verifyUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/verify-email/${verificationToken}`;
-
-    // DEVELOP
-    console.log(`\n--- 🗺️ SKILLSPHERE REGISTRATION PROCESS ---`);
-    console.log(`User: ${name} (${targetEmail})`);
-    console.log(`Verification URL: ${verifyUrl}`);
-    console.log(`-------------------------------------------\n`);
-
+    // 🌟 Send Welcome Email Background Task
     try {
-      // Trigger your production-grade live email handler
       await sendAutomatedEmail({
         to: targetEmail,
-        subject: "Welcome to SkillSphere - Verify Your Email",
+        subject: "Welcome to SkillSphere!",
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #333;">
             <h2>Welcome to SkillSphere, ${name}!</h2>
-            <p>Thank you for registering. Please click the button below to verify your account address framework and unlock your workspace marketplace tools:</p>
-            <p style="margin: 30px 0;">
-              <a href="${verifyUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block;">Verify My Email Address</a>
-            </p>
-            <p style="font-size: 12px; color: #666;">If the button above does not work, copy and paste this link into your browser:</p>
-            <p style="font-size: 12px; color: #2563eb;">${verifyUrl}</p>
+            <p>Your account has been successfully created and verified.</p>
+            <p>You can now log in and start exploring the marketplace.</p>
           </div>
         `,
       });
     } catch (mailError) {
-      // Catch bad env credentials gracefully without dropping the entire request flow!
-      console.error(
-        "⚠️ Nodemailer failed to deliver email, but user document registration remains safe in database:",
-        mailError.message,
-      );
+      console.error("Welcome email failed to send, but registration succeeded:", mailError.message);
     }
 
     const token = generateToken(savedUser._id);
 
     return res.status(201).json({
-      message:
-        "Registration successful. A verification link has been dispatched to your inbox.",
+      message: "Registration successful. Welcome to SkillSphere!",
       user: buildPublicUser(savedUser),
       token,
     });
   } catch (error) {
     console.error("registerUser Error Gateway:", error?.message || error);
-    return res.status(500).json({
-      message: "Registration failed. Please try again later.",
-    });
+    return res.status(500).json({ message: "Registration failed. Please try again later." });
   }
 }
 
 /**
- * Login with email/password; Intercepts step workflow loops if 2FA is active.
+ * Login: Checks password, triggers 6-digit Email OTP if 2FA is enabled.
  */
 async function loginUser(req, res) {
   try {
     const { email, password } = req.body;
+    const user = await User.findOne({ email: String(email).toLowerCase().trim() }).select("+password");
 
-    if (!email || !password) {
-      return res.status(400).json({
-        message: "Email and password are required.",
-      });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ message: "Invalid email or password." });
     }
 
-    const user = await User.findOne({
-      email: String(email).toLowerCase().trim(),
-    }).select("+password");
+    // 🌟 TEMPORARY OVERRIDE TO TEST THE FRONTEND FLOW
+    user.twoFactorEnabled = true;
 
-    if (!user || !user.password) {
-      return res.status(401).json({
-        message: "Invalid email or password.",
-      });
-    }
-
-    const passwordMatches = await bcrypt.compare(password, user.password);
-
-    if (!passwordMatches) {
-      return res.status(401).json({
-        message: "Invalid email or password.",
-      });
-    }
-
-    if (!process.env.JWT_SECRET) {
-      console.error("loginUser: JWT_SECRET is not configured");
-      return res.status(500).json({
-        message: "Server authentication is not configured.",
-      });
-    }
-
+    // 🌟 EMAIL OTP 2FA TRIGGER
     if (user.twoFactorEnabled) {
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // Generate 6 digits
+      user.twoFactorOtp = await bcrypt.hash(otpCode, BCRYPT_SALT_ROUNDS);
+      user.twoFactorOtpExpire = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+      await user.save();
+
+      try {
+        await sendAutomatedEmail({
+          to: user.email,
+          subject: "SkillSphere - Your Login Code",
+          html: `<h2>Your Login Code is: ${otpCode}</h2><p>This code expires in 10 minutes.</p>`,
+        });
+      } catch (mailError) {
+        console.error("2FA email failed to send:", mailError.message);
+        return res.status(500).json({ message: "Failed to send 2FA code. Please check email configuration." });
+      }
+
       return res.status(200).json({
         requires2FA: true,
-        message: "Two-factor authentication code required.",
+        message: "A 6-digit code has been sent to your email.",
         userId: user._id,
       });
     }
 
     const token = generateToken(user._id);
-
     return res.status(200).json({
       message: "Login successful.",
       user: buildPublicUser(user),
@@ -221,9 +160,50 @@ async function loginUser(req, res) {
     });
   } catch (error) {
     console.error("loginUser Error Gateway:", error?.message || error);
-    return res.status(500).json({
-      message: "Login failed. Please try again later.",
+    return res.status(500).json({ message: "Login failed. Please try again later." });
+  }
+}
+
+/**
+ * Verify Email OTP for 2FA
+ */
+async function verify2FA(req, res) {
+  try {
+    const { userId, code } = req.body;
+
+    if (!userId || !code) {
+      return res.status(400).json({ message: "User ID and validation codes are required." });
+    }
+
+    const user = await User.findById(userId).select("+twoFactorOtp +twoFactorOtpExpire");
+    
+    if (!user || !user.twoFactorOtp) {
+      return res.status(400).json({ message: "No active 2FA request found." });
+    }
+
+    if (user.twoFactorOtpExpire < Date.now()) {
+      return res.status(400).json({ message: "This code has expired. Please log in again." });
+    }
+
+    const isValid = await bcrypt.compare(code.trim(), user.twoFactorOtp);
+    if (!isValid) {
+      return res.status(401).json({ message: "Invalid verification code." });
+    }
+
+    // Clear the OTP fields after successful use
+    user.twoFactorOtp = undefined;
+    user.twoFactorOtpExpire = undefined;
+    await user.save();
+
+    const token = generateToken(user._id);
+    return res.status(200).json({
+      message: "2FA verified successfully.",
+      user: buildPublicUser(user),
+      token,
     });
+  } catch (error) {
+    console.error("verify2FA Error Gateway:", error);
+    return res.status(500).json({ message: "Error verifying 2FA code." });
   }
 }
 
@@ -235,9 +215,7 @@ async function getCurrentUser(req, res) {
     const user = req.user;
 
     if (!user) {
-      return res.status(404).json({
-        message: "User not found.",
-      });
+      return res.status(404).json({ message: "User not found." });
     }
 
     return res.status(200).json({
@@ -255,46 +233,7 @@ async function getCurrentUser(req, res) {
     });
   } catch (error) {
     console.error("getCurrentUser Error Gateway:", error?.message || error);
-    return res.status(500).json({
-      message: "Could not fetch user data.",
-    });
-  }
-}
-
-/**
- * Consumes email token and activates verified field flags.
- * @route   POST /api/auth/verify-email/:token
- */
-async function verifyEmail(req, res) {
-  try {
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(req.params.token)
-      .digest("hex");
-
-    const user = await User.findOne({
-      emailVerificationToken: hashedToken,
-      emailVerificationExpire: { $gt: Date.now() },
-    });
-
-    if (!user) {
-      return res
-        .status(400)
-        .json({ message: "Verification link is invalid or has expired." });
-    }
-
-    user.isEmailVerified = true;
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpire = undefined;
-    await user.save();
-
-    return res.status(200).json({
-      message: "Email verification successful! Profile privileges unlocked.",
-      user: buildPublicUser(user),
-    });
-  } catch (error) {
-    console.error("verifyEmail Error Gateway:", error);
-    return res.status(500).json({ message: "Verification processing failed." });
+    return res.status(500).json({ message: "Could not fetch user data." });
   }
 }
 
@@ -326,16 +265,30 @@ async function forgotPassword(req, res) {
 
     const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password/${resetToken}`;
 
-    await sendAutomatedEmail({
-      to: user.email,
-      subject: "SkillSphere - Password Reset Request",
-      html: `
-        <h3>Password Reset Request</h3>
-        <p>You requested a password reset for your SkillSphere profile. Click the link below to set a new password:</p>
-        <p><a href="${resetUrl}" target="_blank">${resetUrl}</a></p>
-        <p>This link will expire in 10 minutes.</p>
-      `,
-    });
+    // 🌟 ISOLATED TRY/CATCH: Prevents Nodemailer from hanging the frontend
+    try {
+      await sendAutomatedEmail({
+        to: user.email,
+        subject: "SkillSphere - Password Reset Request",
+        html: `
+          <h3>Password Reset Request</h3>
+          <p>You requested a password reset for your SkillSphere profile. Click the link below to set a new password:</p>
+          <p><a href="${resetUrl}" target="_blank">${resetUrl}</a></p>
+          <p>This link will expire in 10 minutes.</p>
+        `,
+      });
+    } catch (mailError) {
+      console.error("🚨 Nodemailer failed to send reset email:", mailError);
+      
+      // Rollback the token so it isn't stuck in the database
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save();
+      
+      return res.status(500).json({ 
+        message: "Email could not be sent. Please check server mail configuration." 
+      });
+    }
 
     return res
       .status(200)
@@ -381,54 +334,7 @@ async function resetPassword(req, res) {
   } catch (error) {
     console.error("Reset Password Error Gateway:", error);
     return res.status(500).json({
-      message:
-        "Internal failure updating account password credential structural states.",
-    });
-  }
-}
-
-/**
- * Verify incoming 2FA standard code strings from login forms.
- * @route   POST /api/auth/verify-2fa
- */
-async function verify2FA(req, res) {
-  try {
-    const { userId, code } = req.body;
-
-    if (!userId || !code) {
-      return res.status(400).json({
-        message:
-          "User ID and authenticator token validation codes are required.",
-      });
-    }
-
-    const user = await User.findById(userId).select("+twoFactorSecret");
-    if (!user || !user.twoFactorEnabled) {
-      return res.status(400).json({
-        message:
-          "2FA tracking parameters are completely inactive on this user record.",
-      });
-    }
-
-    const isValid = authenticator.check(code, user.twoFactorSecret);
-
-    if (!isValid) {
-      return res.status(401).json({
-        message: "Invalid verification token code entry parameter string.",
-      });
-    }
-
-    const token = generateToken(user._id);
-
-    return res.status(200).json({
-      message: "2FA checkpoint passed successfully.",
-      user: buildPublicUser(user),
-      token,
-    });
-  } catch (error) {
-    console.error("verify2FA Error Gateway:", error);
-    return res.status(500).json({
-      message: "Internal error processing second factor security checkpoints.",
+      message: "Internal failure updating account password credential structural states.",
     });
   }
 }
@@ -468,12 +374,7 @@ async function googleLogin(req, res) {
 
     return res.status(200).json({
       token: appToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      },
+      user: buildPublicUser(user),
     });
   } catch (error) {
     console.error("Google Auth Engine Error Gateway:", error.message);
@@ -486,10 +387,9 @@ async function googleLogin(req, res) {
 module.exports = {
   registerUser,
   loginUser,
+  verify2FA,
   getCurrentUser,
-  verifyEmail,
   forgotPassword,
   resetPassword,
-  verify2FA,
   googleLogin,
 };

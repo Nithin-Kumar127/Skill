@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { fetchGigById } from "../features/gigs/gigSlice";
 import {
   submitProposal,
+  updateProposal,
   getUserProposalForGig,
   reset,
 } from "../features/proposals/proposalSlice";
@@ -31,78 +32,62 @@ export default function GigDetails() {
 
   const [coverLetter, setCoverLetter] = useState("");
   const [bidAmount, setBidAmount] = useState("");
+  const [estimatedCompletionTime, setEstimatedCompletionTime] = useState("");
   const [localValidationError, setLocalValidationError] = useState("");
 
-  // Target selectedGig or find in state array safely
   const gig = selectedGig || gigs.find((g) => g._id === id);
 
-  // Normalize nested login user payload objects cleanly
   const currentUser = user?.user?.user || user?.user || user;
   const userRole = currentUser?.role;
   const userId = currentUser?.id || currentUser?._id; 
 
-  const gigOwnerId =
-    typeof gig?.user === "string" ? gig.user : gig?.user?._id || gig?.user?.id;
-
+  const gigOwnerId = typeof gig?.user === "string" ? gig.user : gig?.user?._id || gig?.user?.id;
   const isFreelancer = userRole === "freelancer";
   const isOwnGig = userId?.toString() === gigOwnerId?.toString();
   
-  // DEFENSIVE LAYER 1: Double-check that userProposal freelancer matches current user ID
-  // If NOT matching, treat as if proposal doesn't exist (stale state protection)
+  const isNegotiating = userProposal?.status === "negotiating";
+
   const hasApplied = 
     !!userProposal &&
     String(userProposal?.freelancer?._id || userProposal?.freelancer) === String(userId) &&
-    String(userProposal?.gig) === String(id);
+    String(userProposal?.gig) === String(id) &&
+    !isNegotiating; 
 
-  // DEFENSIVE LAYER 2: Flag stale data for active monitoring
-  const isStaleProposal = 
-    !!userProposal && 
-    String(userProposal?.freelancer?._id || userProposal?.freelancer) !== String(userId);
+  const isStaleProposal = !!userProposal && String(userProposal?.freelancer?._id || userProposal?.freelancer) !== String(userId);
 
   useEffect(() => {
-    console.log("GigDetails: User changed or component mounted", { userId, gigId: id, userProposal: userProposal?._id });
-    
-    // CRITICAL RESET: Immediately dispatch reset to clear ALL proposal state
     dispatch(reset());
-    
     if (!gig) {
       dispatch(fetchGigById(id));
     }
-    
-    // Only fetch proposal if freelancer viewing someone else's gig
     if (isFreelancer && !isOwnGig && userId) {
-      console.log("Fetching proposal status for freelancer", { userId, gigId: id });
       dispatch(getUserProposalForGig(id));
     }
-
-    // CRITICAL CLEANUP: Return function absolutely must reset proposal state on unmount or dependency change
     return () => {
-      console.log("GigDetails: Cleanup - resetting proposal state");
       dispatch(reset());
-      // DEFENSIVE: Also set userProposal to null directly in state if possible
-      // This is handled by reset() setting state.userProposal = null
     };
-  }, [dispatch, id, isFreelancer, isOwnGig, userId]); // userId is CRITICAL dependency
+  }, [dispatch, id, isFreelancer, isOwnGig, userId]);
 
   useEffect(() => {
-    if (isSuccess) {
-      console.log("Proposal submitted successfully - refreshing state");
+    if (isNegotiating && userProposal) {
+      setBidAmount(userProposal.bidAmount || "");
+      setEstimatedCompletionTime(userProposal.estimatedCompletionTime || "");
+      setCoverLetter(userProposal.coverLetter || "");
+    }
+  }, [isNegotiating, userProposal]);
+
+  useEffect(() => {
+    if (isSuccess && !isNegotiating) {
       setCoverLetter("");
       setBidAmount("");
+      setEstimatedCompletionTime("");
       setLocalValidationError("");
       dispatch(getUserProposalForGig(id));
     }
-  }, [isSuccess, dispatch, id]);
+  }, [isSuccess, dispatch, id, isNegotiating]);
 
-  // DEFENSIVE LAYER 3: Actively monitor for stale proposal state and force correction
   useEffect(() => {
     if (isStaleProposal) {
-      console.warn("🚨 STALE PROPOSAL DETECTED", { 
-        storedFreelancer: String(userProposal?.freelancer?._id || userProposal?.freelancer),
-        currentUser: String(userId),
-        mismatch: true 
-      });
-      // Force complete reset and re-fetch with current user context
       dispatch(reset());
       if (isFreelancer && !isOwnGig && userId) {
         dispatch(getUserProposalForGig(id));
@@ -119,8 +104,8 @@ export default function GigDetails() {
       return;
     }
 
-    if (!coverLetter.trim() || !bidAmount) {
-      setLocalValidationError("Please complete both form inputs to submit your proposal.");
+    if (!coverLetter.trim() || !bidAmount || !estimatedCompletionTime.trim()) {
+      setLocalValidationError("Please complete all form inputs to submit your proposal.");
       return;
     }
 
@@ -139,9 +124,14 @@ export default function GigDetails() {
       gig: id,
       coverLetter: coverLetter.trim(),
       bidAmount: parsedBid,
+      estimatedCompletionTime: estimatedCompletionTime.trim(),
     };
 
-    dispatch(submitProposal(proposalData));
+    if (isNegotiating) {
+      dispatch(updateProposal({ proposalId: userProposal._id, proposalData }));
+    } else {
+      dispatch(submitProposal(proposalData));
+    }
   };
 
   if (authLoading || gigLoading) {
@@ -175,33 +165,64 @@ export default function GigDetails() {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 text-left animate-fadeIn">
       <div className="bg-white shadow-sm rounded-2xl border border-gray-200 overflow-hidden">
         
+        {/* HEADER */}
         <div className="px-6 py-5 border-b border-gray-100 bg-gradient-to-br from-gray-50/50 to-white">
           <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">{gig.title}</h1>
           <div className="mt-3 flex items-center space-x-4 text-xs">
             <span className="inline-block rounded-xl bg-green-50 px-3 py-1 font-bold text-green-700 border border-green-100">
               Budget Maximum: ₹{gig.maxPr}
             </span>
+            {gig.category && (
+              <span className="inline-block rounded-xl bg-purple-50 px-3 py-1 font-bold text-purple-700 border border-purple-100">
+                {gig.category}
+              </span>
+            )}
             <span className="inline-block rounded-xl bg-blue-50 px-3 py-1 font-bold text-blue-700 border border-blue-100 capitalize">
-              Pipeline Status: {gig.status}
+              Status: {gig.status}
             </span>
           </div>
         </div>
 
-        <div className="px-6 py-6 space-y-6">
+        {/* CONTENT */}
+        <div className="px-6 py-6 space-y-8">
           <div>
             <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Project Specifications</h2>
             <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{gig.description}</p>
           </div>
 
+          {gig.attachments && gig.attachments.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Attached Documents</h3>
+              <div className="flex flex-wrap gap-2">
+                {gig.attachments.map((url, i) => (
+                  <a key={i} href={`http://localhost:5000${url}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 px-3 py-2 rounded-xl text-xs font-semibold text-blue-600 hover:bg-gray-100 transition">
+                    📎 View Document {i + 1}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {gig.milestones && gig.milestones.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Project Milestones</h3>
+              <ul className="space-y-2">
+                {gig.milestones.map((m, i) => (
+                  <li key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-200 text-sm">
+                    <span className="font-semibold text-gray-800">{m.title}</span>
+                    <span className="text-green-600 font-bold border border-green-200 bg-green-50 px-2.5 py-1 rounded-lg text-xs">₹{m.amount}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {gig.skillsRequired && gig.skillsRequired.length > 0 && (
             <div>
-              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Target Stack Verification</h3>
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Required Skills</h3>
               <div className="flex flex-wrap gap-1.5">
                 {gig.skillsRequired.map((skill, index) => (
-                  <span
-                    key={index}
-                    className="inline-block bg-gray-100 text-gray-800 font-medium px-2.5 py-1 rounded-xl text-xs uppercase tracking-wide"
-                  >
+                  <span key={index} className="inline-block bg-gray-100 text-gray-800 font-medium px-2.5 py-1 rounded-xl text-xs uppercase tracking-wide">
                     {skill}
                   </span>
                 ))}
@@ -210,39 +231,74 @@ export default function GigDetails() {
           )}
         </div>
 
+        {/* PROPOSAL APPLICATION FORM */}
         {currentUser && isFreelancer && !isOwnGig && (
           <div className="px-6 py-6 border-t border-gray-200 bg-gray-50/60">
             {hasApplied ? (
-              <div className="text-center py-6 bg-white border border-green-100 rounded-xl max-w-md mx-auto shadow-sm space-y-1">
-                <p className="text-green-600 font-bold text-sm">✓ Operational Proposal Transmitted</p>
-                <p className="text-xs text-gray-500">Your profile bid ledger parameters are safely locked into this gig tracking index.</p>
+              // 🌟 FIX: Updated view to conditionally show "Workspace" link if accepted
+              <div className="text-center py-8 bg-white border border-green-100 rounded-xl max-w-md mx-auto shadow-sm space-y-3">
+                <p className="text-green-600 font-bold text-lg">
+                  {userProposal?.status === "accepted" ? "🎉 Proposal Accepted!" : "✓ Operational Proposal Transmitted"}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {userProposal?.status === "accepted" 
+                    ? "The client has hired you. You can now enter the workspace to collaborate." 
+                    : "Your profile bid ledger parameters are safely locked into this gig tracking index."}
+                </p>
+                {userProposal?.status === "accepted" && (
+                  <div className="pt-2">
+                    <button
+                      onClick={() => navigate(`/manage-gig/${id}`)}
+                      className="inline-flex items-center px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-md cursor-pointer"
+                    >
+                      Contract Started: Enter Workspace →
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="max-w-2xl">
-                <h3 className="text-base font-bold text-gray-900 mb-1">Apply for Contract Work Matrix</h3>
-                <p className="text-xs text-gray-500 mb-4">Provide your structural cost configurations and engineering cover letter statement summary.</p>
+                <h3 className="text-base font-bold text-gray-900 mb-1">
+                  {isNegotiating ? "Negotiate Contract Terms" : "Apply for Contract Work Matrix"}
+                </h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  {isNegotiating ? "The client has requested a counter-offer. Update your bid or timeline below." : "Provide your structural cost configurations and engineering cover letter statement summary."}
+                </p>
                 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  
-                  {(localValidationError || proposalError) && (
+                  {(localValidationError || (proposalError && proposalMessage !== "No proposal found.")) && (
                     <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-semibold text-red-700">
                       ⚠️ {localValidationError || proposalMessage}
                     </div>
                   )}
 
-                  <div className="max-w-xs">
-                    <label htmlFor="bidAmount" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Your Dynamic Bid Amount (₹)</label>
-                    <input
-                      type="number"
-                      id="bidAmount"
-                      value={bidAmount}
-                      onChange={(e) => setBidAmount(e.target.value)}
-                      min="0"
-                      step="1"
-                      placeholder={`Max Budget Cap: ₹${gig.maxPr}`}
-                      required
-                      className="mt-1.5 block w-full border border-gray-300 rounded-xl shadow-sm py-2 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition bg-white"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="bidAmount" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Your Dynamic Bid Amount (₹)</label>
+                      <input
+                        type="number"
+                        id="bidAmount"
+                        value={bidAmount}
+                        onChange={(e) => setBidAmount(e.target.value)}
+                        min="0"
+                        step="1"
+                        placeholder={`Max Budget Cap: ₹${gig.maxPr}`}
+                        required
+                        className="mt-1.5 block w-full border border-gray-300 rounded-xl shadow-sm py-2 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="estimatedCompletionTime" className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Estimated Completion Time</label>
+                      <input
+                        type="text"
+                        id="estimatedCompletionTime"
+                        value={estimatedCompletionTime}
+                        onChange={(e) => setEstimatedCompletionTime(e.target.value)}
+                        placeholder="e.g., 2 weeks, 10 days"
+                        required
+                        className="mt-1.5 block w-full border border-gray-300 rounded-xl shadow-sm py-2 px-3 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition bg-white"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -261,9 +317,11 @@ export default function GigDetails() {
                   <button
                     type="submit"
                     disabled={proposalLoading}
-                    className="inline-flex justify-center py-2.5 px-5 border border-transparent shadow-sm text-xs font-bold rounded-xl text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition cursor-pointer"
+                    className={`inline-flex justify-center py-2.5 px-5 border border-transparent shadow-sm text-xs font-bold rounded-xl text-white ${
+                      isNegotiating ? 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500' : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+                    } disabled:opacity-50 transition cursor-pointer`}
                   >
-                    {proposalLoading ? "Transmitting Proposal Parameters..." : "Submit Platform Proposal Contract"}
+                    {proposalLoading ? "Processing..." : isNegotiating ? "Submit Counter-Offer" : "Submit Platform Proposal Contract"}
                   </button>
                 </form>
               </div>
@@ -271,6 +329,7 @@ export default function GigDetails() {
           </div>
         )}
 
+        {/* NAVIGATION FOOTER */}
         <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/20">
           <button
             onClick={() => navigate("/marketplace")}

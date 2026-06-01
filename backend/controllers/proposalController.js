@@ -1,70 +1,36 @@
 const mongoose = require("mongoose");
-
 const Gig = require("../models/Gig");
 const Proposal = require("../models/Proposal");
 const User = require("../models/User");
 
 const CLIENT_UPDATEABLE_STATUSES = ["accepted", "rejected", "negotiating"];
 
-function validateEstimatedCompletionTime(raw) {
-  if (raw === undefined || raw === null) {
-    return { ok: false, message: "estimatedCompletionTime is required." };
-  }
-
-  if (typeof raw === "number") {
-    if (!Number.isFinite(raw) || raw < 0) {
-      return {
-        ok: false,
-        message: "estimatedCompletionTime as a number must be a non-negative finite value (days).",
-      };
-    }
-    return { ok: true, value: raw };
-  }
-
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      return {
-        ok: false,
-        message: "estimatedCompletionTime string cannot be empty.",
-      };
-    }
-    return { ok: true, value: trimmed };
-  }
-
-  return {
-    ok: false,
-    message: "estimatedCompletionTime must be a non-empty string or a non-negative number (days).",
-  };
-}
-
+// Helper function to check if a client owns a specific gig
 function gigOwnedByClient(gigRecord, clientUserId) {
   return String(gigRecord.user) === String(clientUserId);
 }
 
 /**
- * Freelancer submits a proposal for a gig.
+ * Freelancer submits a new proposal for a gig.
  */
 async function submitProposal(req, res) {
   try {
-    const { gig: gigRef, coverLetter, bidAmount } = req.body;
+    const { gig: gigRef, coverLetter, bidAmount, estimatedCompletionTime } = req.body;
 
-    if (!gigRef) {
-      return res.status(400).json({ message: "gig is required (Gig document id)." });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(gigRef)) {
-      return res.status(400).json({ message: "Invalid gig id." });
+    if (!gigRef || !mongoose.Types.ObjectId.isValid(gigRef)) {
+      return res.status(400).json({ message: "Valid gig ID is required." });
     }
 
     if (!coverLetter || typeof coverLetter !== "string" || !coverLetter.trim()) {
       return res.status(400).json({ message: "coverLetter is required." });
     }
 
-    const gigRecord = await Gig.findById(gigRef);
-    if (!gigRecord) {
-      return res.status(404).json({ message: "Gig not found." });
+    if (!estimatedCompletionTime || typeof estimatedCompletionTime !== "string" || !estimatedCompletionTime.trim()) {
+      return res.status(400).json({ message: "estimatedCompletionTime is required." });
     }
+
+    const gigRecord = await Gig.findById(gigRef);
+    if (!gigRecord) return res.status(404).json({ message: "Gig not found." });
 
     if (gigRecord.status !== "open") {
       return res.status(400).json({ message: "Proposals can only be submitted for open gigs." });
@@ -74,9 +40,7 @@ async function submitProposal(req, res) {
       return res.status(403).json({ message: "You cannot submit a proposal for your own gig." });
     }
 
-    const fallbackBidAmount = bidAmount !== undefined && bidAmount !== null ? bidAmount : gigRecord.maxPr;
-    const bidAmountParsed = Number(fallbackBidAmount);
-    
+    const bidAmountParsed = Number(bidAmount !== undefined ? bidAmount : gigRecord.maxPr);
     if (Number.isNaN(bidAmountParsed) || bidAmountParsed < 0) {
       return res.status(400).json({ message: "bidAmount must evaluate cleanly to a non-negative number." });
     }
@@ -86,6 +50,7 @@ async function submitProposal(req, res) {
       freelancer: req.user.id,
       coverLetter: coverLetter.trim(),
       bidAmount: bidAmountParsed,
+      estimatedCompletionTime: estimatedCompletionTime.trim(),
       status: "pending",
     });
 
@@ -95,17 +60,67 @@ async function submitProposal(req, res) {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({
-        message: "You have already submitted a proposal for this gig.",
-        code: "DUPLICATE_PROPOSAL",
-      });
+      return res.status(409).json({ message: "You have already submitted a proposal for this gig.", code: "DUPLICATE_PROPOSAL" });
+    }
+    console.error("submitProposal error:", error?.message || error);
+    if (error.name === "ValidationError") return res.status(400).json({ message: error.message });
+    return res.status(500).json({ message: "Could not submit proposal." });
+  }
+}
+
+/**
+ * 🌟 NEW: Freelancer updates an existing proposal (Counter-Offer).
+ */
+async function updateProposal(req, res) {
+  try {
+    const proposalId = req.params.id;
+    const { coverLetter, bidAmount, estimatedCompletionTime } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(proposalId)) {
+      return res.status(400).json({ message: "Invalid proposal ID." });
     }
 
-    console.error("submitProposal error:", error?.message || error);
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ message: error.message });
+    const proposal = await Proposal.findById(proposalId);
+    if (!proposal) return res.status(404).json({ message: "Proposal not found." });
+
+    // Verify ownership
+    if (String(proposal.freelancer) !== String(req.user.id)) {
+      return res.status(403).json({ message: "You can only edit your own proposals." });
     }
-    return res.status(500).json({ message: "Could not submit proposal." });
+
+    // Check if gig is still open
+    const gigRecord = await Gig.findById(proposal.gig);
+    if (!gigRecord || gigRecord.status !== "open") {
+       return res.status(400).json({ message: "Cannot modify proposal, gig is no longer open." });
+    }
+
+    // Only allow edits if status is negotiating (or pending)
+    if (!["negotiating", "pending"].includes(proposal.status)) {
+      return res.status(400).json({ message: "You can only edit proposals that are pending or in negotiation." });
+    }
+
+    if (coverLetter) proposal.coverLetter = coverLetter.trim();
+    if (estimatedCompletionTime) proposal.estimatedCompletionTime = estimatedCompletionTime.trim();
+    if (bidAmount !== undefined) {
+       const bidAmountParsed = Number(bidAmount);
+       if (Number.isNaN(bidAmountParsed) || bidAmountParsed < 0) {
+         return res.status(400).json({ message: "bidAmount must be a valid non-negative number." });
+       }
+       proposal.bidAmount = bidAmountParsed;
+    }
+
+    // 🌟 Switch status back to pending so the client sees it as a new offer!
+    proposal.status = "pending";
+    await proposal.save();
+
+    return res.status(200).json({
+      message: "Counter-offer submitted successfully.",
+      proposal: proposal.toObject(),
+    });
+
+  } catch (error) {
+    console.error("updateProposal error:", error);
+    return res.status(500).json({ message: "Could not update proposal." });
   }
 }
 
@@ -142,7 +157,7 @@ async function getGigProposals(req, res) {
 }
 
 /**
- * Client updates proposal status.
+ * Client updates proposal status (e.g., Negotiate, Reject).
  */
 async function updateProposalStatus(req, res) {
   try {
@@ -340,7 +355,6 @@ async function getFreelancerMetrics(req, res) {
       status: "in-progress"
     });
 
-    // 🌟 OPTIMIZED AGGREGATION: Include "submitted" and "completed" parameters in financial loops
     const earningsResult = await Proposal.aggregate([
       {
         $match: {
@@ -372,6 +386,7 @@ async function getFreelancerMetrics(req, res) {
 
 module.exports = {
   submitProposal,
+  updateProposal, // 🌟 EXPORTED NEW FUNCTION
   getGigProposals,
   updateProposalStatus,
   getUserProposalForGig,
