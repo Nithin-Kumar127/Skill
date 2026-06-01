@@ -13,6 +13,7 @@ import Marketplace from "./pages/Marketplace";
 import GigDetails from "./pages/GigDetails";
 import ManageGig from "./pages/ManageGig";
 import FreelancerProfileView from "./pages/FreelancerProfileView";
+import TransactionHistory from "./pages/TransactionHistory";  
 
 // Structural subpage dependencies mapped natively to parent layout views
 import Overview from "./pages/Overview";
@@ -43,10 +44,7 @@ function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/overview" element={<Overview />} />
               <Route path="/my-work" element={<MyWork />} />
-              <Route
-                path="/verify-notice"
-                element={<FreelancerApplyVerification />}
-              />
+              <Route path="/verify-notice" element={<FreelancerApplyVerification />} />
               <Route path="/create-gig" element={<CreateGig />} />
               <Route path="/marketplace" element={<Marketplace />} />
               <Route path="/gigs/:id" element={<GigDetails />} />
@@ -54,10 +52,10 @@ function App() {
               <Route path="/proposals" element={<Proposals />} />
               <Route path="/my-proposals" element={<MyProposals />} />
               <Route path="/admin" element={<AdminDashboard />} />
-              <Route
-                path="/profile/freelancer"
-                element={<FreelancerProfileView />}
-              />
+              <Route path="/profile/freelancer" element={<FreelancerProfileView />} />
+              
+              {/* 🌟 MOVED HERE: Now it correctly uses the PrivateRoute Outlet */}
+              <Route path="/transactions" element={<TransactionHistory />} />
             </Route>
           </Routes>
         </main>
@@ -67,3 +65,6 @@ function App() {
 }
 
 export default App;
+
+
+

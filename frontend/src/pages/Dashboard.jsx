@@ -73,10 +73,11 @@ export default function Dashboard() {
   });
   const proposalsToReview = sortedBids.slice(0, 3);
 
-  // Menu triggers internal switch strings while Marketplace targets the main router tree
+  // 🌟 UPDATED: Added "Transactions" link into the sidebar menu
   const menu = [
     { label: "Overview", type: "tab" },
     { label: role === "client" ? "My Gigs" : "My Work", type: "tab" },
+    { label: "Transactions", type: "link", to: "/transactions" }, // <-- New Ledger Link
     { label: "Marketplace", type: "link", to: "/marketplace" },
     { label: role === "admin" ? "Admin" : "Settings", type: "tab" },
   ];
@@ -156,6 +157,15 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
+                    
+                    {/* 🌟 UPDATED: Quick access Ledger Button */}
+                    <button
+                      onClick={() => navigate("/transactions")}
+                      className="inline-flex items-center justify-center rounded-xl bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100 transition shadow-sm border border-blue-200 cursor-pointer"
+                    >
+                      💳 Ledger
+                    </button>
+                    
                     <button
                       onClick={() => navigate(action.to)}
                       className={[
@@ -220,7 +230,6 @@ export default function Dashboard() {
                   </div>
 
                   <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-                    {/* FIXED: Added matching alignment flex container headers and NavLink targeting /proposals */}
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-xl font-bold text-gray-900">Proposals to Review</h3>
                       <NavLink 

@@ -2,8 +2,10 @@ const mongoose = require("mongoose");
 const Gig = require("../models/Gig");
 const User = require("../models/User");
 const Proposal = require("../models/Proposal"); 
+const Payment = require("../models/Payment"); // 🌟 NEW: Imported Payment Model
 const { sendAutomatedEmail } = require("../config/mail");
 const { generateMilestoneReceiptHTML } = require("../utils/receiptTemplates");
+const { releaseEscrowToFreelancer } = require("./paymentController"); // 🌟 NEW: Imported Payout Logic
 
 function parseMaxPrFilter(raw) {
   if (raw === undefined || raw === null || raw === "") return { ok: true, skip: true };
@@ -242,8 +244,35 @@ async function approveMilestoneWork(req, res) {
     const allCompleted = gigRecord.milestones.every((m) => m.paymentStatus === "completed");
     if (allCompleted) gigRecord.status = "completed";
 
-    await gigRecord.save();
+    await gigRecord.save(); // Save the gig state first
 
+    // 🌟 NEW: AUTOMATIC PAYOUT DISPATCH
+    try {
+      let paymentQuery = { gig: gigId, status: "completed" }; // "completed" status in Payment means it is in Escrow
+      
+      // Match explicit milestone if not a single-milestone gig
+      if (!isSingleMilestoneContract && milestone._id) {
+        paymentQuery.milestoneId = milestone._id;
+      }
+      
+      // Find the escrowed payment for this specific milestone
+      const paymentRecord = await Payment.findOne(paymentQuery).sort({ createdAt: -1 });
+      
+      if (paymentRecord) {
+        const payoutSuccess = await releaseEscrowToFreelancer(paymentRecord._id);
+        if (!payoutSuccess) {
+          console.error(`CRITICAL: Escrow release failed for Payment ID: ${paymentRecord._id}`);
+        } else {
+          console.log(`[Escrow Released] Funds successfully dispatched to Freelancer for Milestone: ${milestone.title}`);
+        }
+      } else {
+        console.warn(`No escrowed payment record found for gig ${gigId}, milestone ${milestone.title}`);
+      }
+    } catch (payoutError) {
+      console.error("Error triggering automatic payout:", payoutError);
+    }
+
+    // Standard Proposal Update
     if (allCompleted) {
       await Proposal.findOneAndUpdate(
         { gig: gigId, freelancer: gigRecord.hiredFreelancer },
@@ -251,6 +280,7 @@ async function approveMilestoneWork(req, res) {
       );
     }
 
+    // Email Dispatch
     try {
       const clientUser = await User.findById(gigRecord.user).lean();
       const freelancerUser = await User.findById(gigRecord.hiredFreelancer).lean();

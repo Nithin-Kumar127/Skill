@@ -55,11 +55,13 @@ export default function ManageGig() {
   const [typedMessage, setTypedMessage] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
+  const [isUploading, setIsUploading] = useState(false); // 🌟 NEW: Upload state
 
   const socketRef = useRef(null);
   const messageEndRef = useRef(null);
   const isChatOpenRef = useRef(isChatOpen);
   const typingTimeoutRef = useRef(null);
+  const fileInputRef = useRef(null); // 🌟 NEW: File input ref
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -95,7 +97,6 @@ export default function ManageGig() {
 
     socketRef.current.on("message_received", (msgDocument) => {
       if (String(msgDocument.gig).trim() === String(id).trim()) {
-        // 🌟 UPDATED: Pass the message AND currentUserId to Redux
         dispatch(receiveSocketMessage({
           message: msgDocument,
           currentUserId: currentUserId,
@@ -128,7 +129,6 @@ export default function ManageGig() {
   const toggleChatDrawer = () => {
     if (!isChatOpen) {
       dispatch(clearUnreadCount());
-      // 🌟 UPDATED: Pass currentUserId so we only mark incoming messages as read
       dispatch(markAsReadLocal(currentUserId)); 
       dispatch(markMessagesAsRead(id));
     }
@@ -156,68 +156,89 @@ export default function ManageGig() {
     setTypedMessage("");
   };
 
+  // 🌟 NEW: File Upload Handler
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const token = localStorage.getItem("token");
+      const backendUrl = import.meta.env?.VITE_API_URL || "http://localhost:5000";
+      
+      const response = await fetch(`${backendUrl}/api/upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.fileUrl) {
+        // Broadcast the file as a message via socket
+        socketRef.current.emit("send_message", {
+          gigId: id,
+          content: "", // Optional text attached to file
+          fileUrl: data.fileUrl,
+          fileType: data.fileType,
+        });
+      } else {
+        alert(data.message || "File upload failed.");
+      }
+    } catch (error) {
+      console.error("File upload error:", error);
+      alert("An error occurred while uploading the file.");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""; // Reset input
+      }
+    }
+  };
+
+  // ... (Keep existing Milestone & Proposal Handlers)
   const handleAcceptProposal = (proposalId) => {
     if (window.confirm("Accept this proposal and launch contract operations?")) {
-      dispatch(acceptProposal(proposalId))
-        .unwrap()
-        .then(() => {
-          dispatch(fetchGigById(id));
-          dispatch(getGigProposals(id));
-          if (role === "client") dispatch(getGigs());
-        });
+      dispatch(acceptProposal(proposalId)).unwrap().then(() => {
+        dispatch(fetchGigById(id));
+        dispatch(getGigProposals(id));
+        if (role === "client") dispatch(getGigs());
+      });
     }
   };
 
   const handleStatusUpdate = (proposalId, newStatus) => {
     if (window.confirm(`Are you sure you want to mark this proposal as ${newStatus}?`)) {
-      dispatch(updateProposalStatus({ proposalId, status: newStatus }))
-        .unwrap()
-        .then(() => dispatch(getGigProposals(id)));
+      dispatch(updateProposalStatus({ proposalId, status: newStatus })).unwrap().then(() => dispatch(getGigProposals(id)));
     }
   };
 
   const handleFundMilestone = async (milestone) => {
     const scriptLoaded = await loadRazorpayScript();
-    if (!scriptLoaded) {
-      alert("Failed to load payment gateway components.");
-      return;
-    }
+    if (!scriptLoaded) return alert("Failed to load payment gateway components.");
 
     try {
       const targetMilestoneId = milestone._id === "default-milestone-id-1" ? id : milestone._id;
-      const orderPayload = {
-        gigId: id,
-        milestoneId: targetMilestoneId, 
-        milestoneTitle: milestone.title,
-        amount: milestone.amount,
-        currency: "INR"
-      };
+      const orderData = await dispatch(createPaymentOrder({ gigId: id, milestoneId: targetMilestoneId, milestoneTitle: milestone.title, amount: milestone.amount, currency: "INR" })).unwrap();
       
-      const orderData = await dispatch(createPaymentOrder(orderPayload)).unwrap();
-      const razorpayKey = import.meta.env?.VITE_RAZORPAY_KEY_ID;
-
       const options = {
-        key: razorpayKey, 
+        key: import.meta.env?.VITE_RAZORPAY_KEY_ID, 
         amount: orderData.amount,
         currency: orderData.currency,
         name: "SkillSphere Marketplace",
         description: `Escrow Funding: ${milestone.title}`,
         order_id: orderData.orderId,
         handler: async function (response) {
-          const verificationPayload = {
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_signature: response.razorpay_signature,
-          };
-
-          await dispatch(verifyPaymentSignature(verificationPayload)).unwrap();
+          await dispatch(verifyPaymentSignature({ razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature })).unwrap();
           dispatch(fetchGigById(id));
           alert("Milestone escrow funds locked successfully.");
         },
-        prefill: {
-          name: user?.name || "Client User",
-          email: user?.email || "billing@skillsphere.com",
-        },
+        prefill: { name: user?.name || "Client User", email: user?.email || "billing@skillsphere.com" },
         theme: { color: "#2563EB" },
       };
 
@@ -231,28 +252,14 @@ export default function ManageGig() {
   const handleWorkDeliverySubmit = (e, milestoneId) => {
     e.preventDefault();
     const formValues = submissionForms[milestoneId] || {};
-    if (!formValues.submissionUrl?.trim()) {
-      alert("A valid delivery link URL is required.");
-      return;
-    }
+    if (!formValues.submissionUrl?.trim()) return alert("A valid delivery link URL is required.");
 
-    const verifiedTargetId = milestoneId === "default-milestone-id-1" ? id : milestoneId;
-
-    dispatch(submitMilestoneWork({
-      gigId: id,
-      milestoneId: verifiedTargetId,
-      submissionData: {
-        submissionUrl: formValues.submissionUrl.trim(),
-        workNotes: formValues.workNotes?.trim() || ""
-      }
-    }))
-    .unwrap()
-    .then(() => {
+    dispatch(submitMilestoneWork({ gigId: id, milestoneId: milestoneId === "default-milestone-id-1" ? id : milestoneId, submissionData: { submissionUrl: formValues.submissionUrl.trim(), workNotes: formValues.workNotes?.trim() || "" } }))
+    .unwrap().then(() => {
       alert("Deliverable package successfully transmitted.");
       setActiveFormId(null);
       dispatch(fetchGigById(id));
-    })
-    .catch((err) => alert("Submission processing failed: " + err));
+    }).catch((err) => alert("Submission processing failed: " + err));
   };
 
   const handleInputChange = (milestoneId, field, value) => {
@@ -261,15 +268,11 @@ export default function ManageGig() {
 
   const handleApproveMilestone = (milestoneId) => {
     if (window.confirm("Approve this work payload and release escrow funds to the expert?")) {
-      const verifiedTargetId = milestoneId === "default-milestone-id-1" ? id : milestoneId;
-
-      dispatch(approveMilestoneWork({ gigId: id, milestoneId: verifiedTargetId }))
-        .unwrap()
-        .then(() => {
+      dispatch(approveMilestoneWork({ gigId: id, milestoneId: milestoneId === "default-milestone-id-1" ? id : milestoneId }))
+        .unwrap().then(() => {
           alert("Milestone approved and closed.");
           dispatch(fetchGigById(id));
-        })
-        .catch((err) => alert("Approval validation failed: " + err));
+        }).catch((err) => alert("Approval validation failed: " + err));
     }
   };
 
@@ -305,6 +308,8 @@ export default function ManageGig() {
   const completedCount = projectMilestones.filter(m => m.paymentStatus === "completed").length;
   const totalCount = projectMilestones.length;
   const calculatedPercentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  
+  const backendUrl = import.meta.env?.VITE_API_URL || "http://localhost:5000";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 relative min-h-screen pb-24">
@@ -331,7 +336,6 @@ export default function ManageGig() {
 
       {isInProgress ? (
         <div className="grid gap-6 lg:grid-cols-3 items-start">
-          
           <div className="lg:col-span-2 space-y-6">
             
             {/* LIVE TRACK PROGRESS BAR DISPLAY PANEL */}
@@ -529,9 +533,37 @@ export default function ManageGig() {
                         <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs shadow-sm ${
                           isMe ? "bg-blue-600 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none border border-gray-200"
                         }`}>
-                          <p className="leading-relaxed break-words font-medium">{msg.content}</p>
                           
-                          {/* 🌟 Read Receipts UI */}
+                          {/* 🌟 NEW: FILE ATTACHMENT RENDERING */}
+                          {msg.fileUrl && (
+                            <div className="mb-2">
+                              {msg.fileType && msg.fileType.startsWith('image/') ? (
+                                <img 
+                                  src={`${backendUrl}${msg.fileUrl}`} 
+                                  alt="attachment" 
+                                  className="max-w-full rounded-lg border border-black/10 shadow-sm"
+                                  style={{ maxHeight: '150px', objectFit: 'cover' }}
+                                />
+                              ) : (
+                                <a 
+                                  href={`${backendUrl}${msg.fileUrl}`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold transition break-all ${
+                                    isMe ? "bg-blue-700/50 border-blue-400 hover:bg-blue-700 text-white" : "bg-gray-100 border-gray-300 hover:bg-gray-200 text-blue-600"
+                                  }`}
+                                >
+                                  📎 {msg.fileUrl.split('/').pop()}
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {msg.content && (
+                            <p className="leading-relaxed break-words font-medium">{msg.content}</p>
+                          )}
+                          
+                          {/* Read Receipts UI */}
                           {isMe && (
                             <div className="text-[9px] opacity-70 text-right mt-0.5 font-bold">
                               {msg.isRead ? "✓✓" : "✓"}
@@ -546,27 +578,56 @@ export default function ManageGig() {
                   })
                 ) : (
                   <div className="h-full flex items-center justify-center text-center p-6 text-gray-400 italic text-xs font-medium">
-                    No active messages found. Send an message to sync live.
+                    No active messages found. Send a message to sync live.
                   </div>
                 )}
                 <div ref={messageEndRef} />
               </div>
 
-              {/* 🌟 Typing Indicator UI */}
+              {/* Typing Indicator UI */}
               {isOtherTyping && (
                 <div className="px-4 py-1 text-[10px] italic text-gray-400">Other user is typing...</div>
               )}
 
-              <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-100 bg-white flex gap-2 shrink-0 items-center">
+              <form onSubmit={handleSendMessage} className="p-2 border-t border-gray-100 bg-white flex gap-2 shrink-0 items-center">
+                
+                {/* 🌟 NEW: HIDDEN FILE INPUT */}
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileUpload} 
+                  className="hidden" 
+                />
+                
+                {/* 🌟 NEW: PAPERCLIP UPLOAD BUTTON */}
+                <button 
+                  type="button" 
+                  onClick={() => fileInputRef.current?.click()} 
+                  disabled={isUploading}
+                  className="text-gray-400 hover:text-blue-600 transition p-1.5 rounded-full hover:bg-blue-50 cursor-pointer disabled:opacity-50"
+                  title="Attach File"
+                >
+                  {isUploading ? (
+                    <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-blue-600"></div>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.586 6.586a6 6 0 108.486 8.486L18 13"></path>
+                    </svg>
+                  )}
+                </button>
+
                 <input 
                   type="text"
-                  required
                   placeholder="Type your message here..."
                   value={typedMessage}
                   onChange={handleTyping}
-                  className="flex-1 text-xs rounded-xl border border-gray-300 px-3 py-2 bg-white text-gray-900 outline-none focus:border-blue-500 font-medium"
+                  className="flex-1 text-xs rounded-xl border border-gray-300 px-3 py-2.5 bg-white text-gray-900 outline-none focus:border-blue-500 font-medium"
                 />
-                <button type="submit" className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition shadow cursor-pointer">
+                <button 
+                  type="submit" 
+                  disabled={!typedMessage.trim() && isUploading}
+                  className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-700 transition shadow cursor-pointer disabled:opacity-50"
+                >
                   Send
                 </button>
               </form>

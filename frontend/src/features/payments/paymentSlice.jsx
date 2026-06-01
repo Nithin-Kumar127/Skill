@@ -2,6 +2,7 @@ import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import axios from "axios";
 
 const initialState = {
+  transactions: [], // 🌟 NEW: Holds the global transaction history
   isLoading: false,
   isError: false,
   isSuccess: false,
@@ -18,9 +19,7 @@ export const createPaymentOrder = createAsyncThunk(
         headers: { Authorization: `Bearer ${token}` },
       };
       
-      // FIX: Changed path from "/api/payments/order" to match your backend route "/api/payments/create-order"
       const response = await axios.post("/api/payments/create-order", orderData, config);
-      
       return response.data; // Returns orderId, amount, currency, etc.
     } catch (error) {
       const message = error.response?.data?.message || error.message || error.toString();
@@ -47,6 +46,42 @@ export const verifyPaymentSignature = createAsyncThunk(
   }
 );
 
+// 🌟 NEW: Fetch Global Transaction History
+export const fetchTransactionHistory = createAsyncThunk(
+  "payments/fetchHistory",
+  async (_, thunkAPI) => {
+    try {
+      const token = localStorage.getItem("token");
+      const config = {
+        headers: { Authorization: `Bearer ${token}` },
+      };
+      const response = await axios.get("/api/payments/history", config);
+      return response.data.transactions; 
+    } catch (error) {
+      const message = error.response?.data?.message || error.message || error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
+// 🌟 NEW: Process a Refund (for Client or Admin)
+export const processRefund = createAsyncThunk(
+  "payments/processRefund",
+  async (paymentId, thunkAPI) => {
+    try {
+      const token = localStorage.getItem("token");
+      const config = {
+        headers: { Authorization: `Bearer ${token}` },
+      };
+      const response = await axios.post("/api/payments/refund", { paymentId }, config);
+      return response.data;
+    } catch (error) {
+      const message = error.response?.data?.message || error.message || error.toString();
+      return thunkAPI.rejectWithValue(message);
+    }
+  }
+);
+
 export const paymentSlice = createSlice({
   name: "payments",
   initialState,
@@ -60,6 +95,7 @@ export const paymentSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // Create Order
       .addCase(createPaymentOrder.pending, (state) => { state.isLoading = true; })
       .addCase(createPaymentOrder.fulfilled, (state) => { state.isLoading = false; })
       .addCase(createPaymentOrder.rejected, (state, action) => {
@@ -67,12 +103,40 @@ export const paymentSlice = createSlice({
         state.isError = true;
         state.message = action.payload;
       })
+      
+      // Verify Signature
       .addCase(verifyPaymentSignature.pending, (state) => { state.isLoading = true; })
       .addCase(verifyPaymentSignature.fulfilled, (state) => {
         state.isLoading = false;
         state.isSuccess = true;
       })
       .addCase(verifyPaymentSignature.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+      })
+
+      // 🌟 Fetch Transaction History
+      .addCase(fetchTransactionHistory.pending, (state) => { state.isLoading = true; })
+      .addCase(fetchTransactionHistory.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+        state.transactions = action.payload; // Store the fetched transactions
+      })
+      .addCase(fetchTransactionHistory.rejected, (state, action) => {
+        state.isLoading = false;
+        state.isError = true;
+        state.message = action.payload;
+        state.transactions = [];
+      })
+
+      // 🌟 Process Refund
+      .addCase(processRefund.pending, (state) => { state.isLoading = true; })
+      .addCase(processRefund.fulfilled, (state) => {
+        state.isLoading = false;
+        state.isSuccess = true;
+      })
+      .addCase(processRefund.rejected, (state, action) => {
         state.isLoading = false;
         state.isError = true;
         state.message = action.payload;
