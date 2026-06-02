@@ -1,7 +1,8 @@
 const express = require("express");
 
 const { protect, authorizeRoles } = require("../middleware/authMiddleware");
-const upload = require("../middleware/upload"); // 🌟 NEW: Multer Middleware
+const upload = require("../middleware/upload");
+
 const {
   getUserProfile,
   getFreelancerProfile,
@@ -10,7 +11,8 @@ const {
   updateClientProfile,
   updateUserProfile,
   applyForVerification,
-  uploadFile, // 🌟 NEW: Controller Logic
+  uploadFile,
+  getPublicFreelancerProfile, // 🌟 ADDED THIS IMPORT
 } = require("../controllers/profileController");
 
 const router = express.Router();
@@ -21,6 +23,9 @@ router.get("/me", protect, getUserProfile);
 router.get("/freelancer", protect, authorizeRoles(["freelancer"]), getFreelancerProfile);
 router.put("/freelancer", protect, authorizeRoles(["freelancer"]), updateFreelancerProfile);
 
+// 🌟 Public route for viewing a freelancer's profile (Clients use this)
+router.get("/freelancer/:id", protect, getPublicFreelancerProfile);
+
 // Client Profile management endpoints
 router.get("/client", protect, authorizeRoles(["client"]), getClientProfile);
 router.put("/client", protect, authorizeRoles(["client"]), updateClientProfile);
@@ -29,7 +34,7 @@ router.put("/client", protect, authorizeRoles(["client"]), updateClientProfile);
 router.put("/update", protect, updateUserProfile);
 router.patch("/apply-verification", protect, applyForVerification);
 
-// 🌟 NEW: Route for handling secure file uploads
+// Route for handling secure file uploads
 router.post("/upload", protect, authorizeRoles(["freelancer"]), upload.single("file"), uploadFile);
 
 module.exports = router;

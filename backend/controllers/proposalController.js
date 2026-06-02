@@ -10,6 +10,36 @@ function gigOwnedByClient(gigRecord, clientUserId) {
   return String(gigRecord.user) === String(clientUserId);
 }
 
+// 🌟 NEW HELPER: Sync negotiated budget and milestones
+function syncNegotiatedBudget(gigRecord, finalBidAmount) {
+  if (gigRecord.maxPr !== finalBidAmount) {
+    const oldTotal = gigRecord.maxPr || 1; // Prevent division by zero
+    const newTotal = finalBidAmount;
+    let sumSoFar = 0;
+
+    if (gigRecord.milestones && gigRecord.milestones.length > 0) {
+      gigRecord.milestones.forEach((m, index) => {
+        if (index === gigRecord.milestones.length - 1) {
+          // The last milestone absorbs any rounding remainders to ensure exact match
+          m.amount = newTotal - sumSoFar;
+        } else {
+          // Proportionately scale the milestone based on the new negotiated price
+          const scaledAmount = Math.round((m.amount / oldTotal) * newTotal);
+          m.amount = scaledAmount;
+          sumSoFar += scaledAmount;
+        }
+      });
+      gigRecord.markModified('milestones');
+    } else {
+      // Fallback if no milestones were defined
+      gigRecord.milestones = [{ title: "Project Delivery", amount: newTotal }];
+    }
+    
+    // Update the master budget
+    gigRecord.maxPr = newTotal;
+  }
+}
+
 /**
  * Freelancer submits a new proposal for a gig.
  */
@@ -69,7 +99,7 @@ async function submitProposal(req, res) {
 }
 
 /**
- * 🌟 NEW: Freelancer updates an existing proposal (Counter-Offer).
+ * Freelancer updates an existing proposal (Counter-Offer).
  */
 async function updateProposal(req, res) {
   try {
@@ -109,7 +139,7 @@ async function updateProposal(req, res) {
        proposal.bidAmount = bidAmountParsed;
     }
 
-    // 🌟 Switch status back to pending so the client sees it as a new offer!
+    // Switch status back to pending so the client sees it as a new offer
     proposal.status = "pending";
     await proposal.save();
 
@@ -157,7 +187,7 @@ async function getGigProposals(req, res) {
 }
 
 /**
- * Client updates proposal status (e.g., Negotiate, Reject).
+ * Client updates proposal status (e.g., Negotiate, Reject, Accept).
  */
 async function updateProposalStatus(req, res) {
   try {
@@ -204,6 +234,9 @@ async function updateProposalStatus(req, res) {
       proposalRecord.status = "accepted";
       await proposalRecord.save();
 
+      // 🌟 FIX: Sync Budget and Milestones on acceptance
+      syncNegotiatedBudget(gigRecord, proposalRecord.bidAmount);
+
       gigRecord.status = "in-progress";
       gigRecord.hiredFreelancer = proposalRecord.freelancer;
       await gigRecord.save();
@@ -215,7 +248,7 @@ async function updateProposalStatus(req, res) {
       );
 
       return res.status(200).json({
-        message: "Gig assigned successfully. Competing proposals for this gig were rejected.",
+        message: "Gig assigned successfully. Budget synced.",
         proposal: proposalRecord.toObject(),
         gig: gigRecord.toObject(),
         rejectedProposalCount: rejectResult.modifiedCount,
@@ -301,6 +334,9 @@ async function acceptProposal(req, res) {
     proposalRecord.status = "accepted";
     await proposalRecord.save();
 
+    // 🌟 FIX: Sync Budget and Milestones on acceptance
+    syncNegotiatedBudget(gigRecord, proposalRecord.bidAmount);
+
     gigRecord.status = "in-progress";
     gigRecord.hiredFreelancer = proposalRecord.freelancer;
     await gigRecord.save();
@@ -312,7 +348,7 @@ async function acceptProposal(req, res) {
     );
 
     return res.status(200).json({
-      message: "Proposal accepted successfully. Gig is now in progress.",
+      message: "Proposal accepted successfully. Gig is now in progress and budget is synced.",
       proposal: proposalRecord.toObject(),
       gig: gigRecord.toObject(),
       rejectedProposalCount: rejectResult.modifiedCount,
@@ -386,7 +422,7 @@ async function getFreelancerMetrics(req, res) {
 
 module.exports = {
   submitProposal,
-  updateProposal, // 🌟 EXPORTED NEW FUNCTION
+  updateProposal,
   getGigProposals,
   updateProposalStatus,
   getUserProposalForGig,

@@ -35,7 +35,21 @@ const CreateGig = () => {
   }, [isError, message]);
 
   const onChange = (e) => {
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    let value = e.target.value;
+    // 🌟 FIX: Prevent sticky leading zeros on number inputs
+    if (e.target.type === "number" && value.length > 1 && value.startsWith("0")) {
+      value = value.replace(/^0+/, '') || "0";
+    }
+    setFormData((prev) => ({ ...prev, [e.target.name]: value }));
+  };
+
+  const handleMilestoneAmountChange = (e) => {
+    let val = e.target.value;
+    // 🌟 FIX: Prevent sticky leading zeros on milestone amount
+    if (val.length > 1 && val.startsWith("0")) {
+      val = val.replace(/^0+/, '') || "0";
+    }
+    setMilestoneInput({ ...milestoneInput, amount: val });
   };
 
   const handleAddMilestone = () => {
@@ -79,8 +93,9 @@ const CreateGig = () => {
     const skillsArray = formData.skillsRequired.split(",").map(s => s.trim()).filter(s => s !== "");
     const milestoneTotal = milestones.reduce((sum, m) => sum + m.amount, 0);
 
-    if (milestoneTotal > Number(formData.maxPr)) {
-      setLocalError("The sum of your milestones cannot exceed the Max Budget Price Ceiling.");
+    // 🌟 FIX: Enforce exact match for milestone totals
+    if (milestones.length > 0 && milestoneTotal !== Number(formData.maxPr)) {
+      setLocalError(`The sum of your milestones (₹${milestoneTotal}) must exactly match the Max Budget (₹${formData.maxPr}).`);
       return;
     }
 
@@ -151,7 +166,7 @@ const CreateGig = () => {
                 <input type="text" value={milestoneInput.title} onChange={(e) => setMilestoneInput({ ...milestoneInput, title: e.target.value })} placeholder="e.g., UI Wireframes" className="w-full text-sm px-4 py-2.5 rounded-xl border border-gray-300 outline-none" />
               </div>
               <div className="w-32">
-                <input type="number" value={milestoneInput.amount} onChange={(e) => setMilestoneInput({ ...milestoneInput, amount: e.target.value })} placeholder="Amount (₹)" className="w-full text-sm px-4 py-2.5 rounded-xl border border-gray-300 outline-none" />
+                <input type="number" value={milestoneInput.amount} onChange={handleMilestoneAmountChange} placeholder="Amount (₹)" className="w-full text-sm px-4 py-2.5 rounded-xl border border-gray-300 outline-none" />
               </div>
               <button type="button" onClick={handleAddMilestone} className="bg-gray-900 text-white font-semibold text-sm px-5 py-2.5 rounded-xl h-[42px] hover:bg-gray-800 transition">Add</button>
             </div>

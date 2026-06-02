@@ -75,7 +75,6 @@ function validateCertificationsPayload(certifications) {
   return { ok: true, value: certifications };
 }
 
-// 🌟 NEW: Validate Work Experience
 function validateWorkExperiencePayload(experience) {
   if (!Array.isArray(experience)) {
     return { ok: false, message: "workExperience must be an array." };
@@ -89,9 +88,6 @@ function validateWorkExperiencePayload(experience) {
   return { ok: true, value: experience };
 }
 
-/**
- * Basic User data for any authenticated user.
- */
 async function getUserProfile(req, res) {
   try {
     return res.status(200).json({
@@ -103,16 +99,13 @@ async function getUserProfile(req, res) {
   }
 }
 
-/**
- * Freelancer: read FreelancerProfile linked by user id.
- */
 async function getFreelancerProfile(req, res) {
   try {
     const id = req.user.id;
-    const profileRecord = await FreelancerProfile.findOne({ id }).lean();
+    let profileRecord = await FreelancerProfile.findOne({ id }).lean();
 
     if (!profileRecord) {
-      return res.status(404).json({ message: "Freelancer profile not found." });
+      profileRecord = { skills: [], portfolioGallery: [], certifications: [], workExperience: [], hourlyRate: 0, maxPr: 0 };
     }
     return res.status(200).json({ profile: profileRecord });
   } catch (error) {
@@ -121,18 +114,9 @@ async function getFreelancerProfile(req, res) {
   }
 }
 
-/**
- * Freelancer: partial update; maxPr validated explicitly.
- */
 async function updateFreelancerProfile(req, res) {
   try {
     const id = req.user.id;
-    const profileRecord = await FreelancerProfile.findOne({ id });
-
-    if (!profileRecord) {
-      return res.status(404).json({ message: "Freelancer profile not found." });
-    }
-
     const updates = {};
 
     if (Object.prototype.hasOwnProperty.call(req.body, "skills")) {
@@ -158,7 +142,6 @@ async function updateFreelancerProfile(req, res) {
       updates.certifications = certCheck.value;
     }
 
-    // 🌟 NEW: Process Work Experience updates
     if (Object.prototype.hasOwnProperty.call(req.body, "workExperience")) {
       const workCheck = validateWorkExperiencePayload(req.body.workExperience);
       if (!workCheck.ok) return res.status(400).json({ message: workCheck.message });
@@ -191,8 +174,11 @@ async function updateFreelancerProfile(req, res) {
       return res.status(400).json({ message: "No valid fields provided for update." });
     }
 
-    Object.assign(profileRecord, updates);
-    await profileRecord.save();
+    const profileRecord = await FreelancerProfile.findOneAndUpdate(
+      { id: id },
+      { $set: updates },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
     return res.status(200).json({
       message: "Freelancer profile updated successfully.",
@@ -205,9 +191,6 @@ async function updateFreelancerProfile(req, res) {
   }
 }
 
-/**
- * Client: read ClientProfile linked by user id.
- */
 async function getClientProfile(req, res) {
   try {
     const id = req.user.id;
@@ -219,9 +202,6 @@ async function getClientProfile(req, res) {
   }
 }
 
-/**
- * Client: partial update (self-service fields only).
- */
 async function updateClientProfile(req, res) {
   try {
     const id = req.user.id;
@@ -246,9 +226,6 @@ async function updateClientProfile(req, res) {
   }
 }
 
-/**
- * Update user profile with bio and skills (for verification application).
- */
 async function updateUserProfile(req, res) {
   try {
     const { bio, skills } = req.body;
@@ -275,9 +252,6 @@ async function updateUserProfile(req, res) {
   }
 }
 
-/**
- * Apply for freelancer verification.
- */
 async function applyForVerification(req, res) {
   try {
     const User = require("../models/User");
@@ -300,13 +274,11 @@ async function applyForVerification(req, res) {
   }
 }
 
-// 🌟 NEW: Upload a file and return the URL
 async function uploadFile(req, res) {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file provided for upload." });
     }
-    // Generate the public URL path for the frontend to access
     const fileUrl = `/uploads/${req.file.filename}`;
     return res.status(200).json({ message: "File uploaded successfully", fileUrl });
   } catch (error) {
@@ -315,6 +287,35 @@ async function uploadFile(req, res) {
   }
 }
 
+// 🌟 NEW: The missing function that caused the crash
+async function getPublicFreelancerProfile(req, res) {
+  try {
+    const { id } = req.params;
+    
+    const profileRecord = await FreelancerProfile.findOne({ id: id }).lean();
+    
+    const User = require("../models/User");
+    const userRecord = await User.findById(id).select("name email verificationStatus").lean();
+
+    if (!userRecord) {
+      return res.status(404).json({ message: "Freelancer user account not found." });
+    }
+
+    const safeProfile = profileRecord || { 
+      skills: [], portfolioGallery: [], certifications: [], workExperience: [], hourlyRate: 0, maxPr: 0, availability: "unknown" 
+    };
+
+    return res.status(200).json({
+      user: userRecord,
+      profile: safeProfile
+    });
+  } catch (error) {
+    console.error("getPublicFreelancerProfile Error:", error?.message || error);
+    return res.status(500).json({ message: "Could not load public freelancer profile." });
+  }
+}
+
+// 🌟 EXPORTS (Crucial part that ties it all together)
 module.exports = {
   getUserProfile,
   getFreelancerProfile,
@@ -323,5 +324,6 @@ module.exports = {
   updateClientProfile,
   updateUserProfile,
   applyForVerification,
-  uploadFile, // 🌟 Exported!
+  uploadFile,
+  getPublicFreelancerProfile, 
 };

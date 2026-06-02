@@ -13,7 +13,9 @@ import Marketplace from "./pages/Marketplace";
 import GigDetails from "./pages/GigDetails";
 import ManageGig from "./pages/ManageGig";
 import FreelancerProfileView from "./pages/FreelancerProfileView";
-import TransactionHistory from "./pages/TransactionHistory";  
+import TransactionHistory from "./pages/TransactionHistory";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 // Structural subpage dependencies mapped natively to parent layout views
 import Overview from "./pages/Overview";
@@ -26,45 +28,56 @@ import ResetPassword from "./pages/ResetPassword";
 
 function App() {
   return (
-    <Router>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Navbar />
-        <main className="flex-1 pt-16">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+    <>
+      {" "}
+      {/* 🌟 ADDED: Opening React Fragment */}
+      <ToastContainer position="top-right" autoClose={3000} />
+      <Router>
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+          <Navbar />
+          <main className="flex-1 pt-16">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
 
-            {/* Public Entry Interfaces For Core Security Operations */}
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password/:token" element={<ResetPassword />} />
+              {/* Public Entry Interfaces For Core Security Operations */}
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route
+                path="/reset-password/:token"
+                element={<ResetPassword />}
+              />
 
-            {/* Protected Routes Namespace Framework */}
-            <Route element={<PrivateRoute />}>
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/overview" element={<Overview />} />
-              <Route path="/my-work" element={<MyWork />} />
-              <Route path="/verify-notice" element={<FreelancerApplyVerification />} />
-              <Route path="/create-gig" element={<CreateGig />} />
-              <Route path="/marketplace" element={<Marketplace />} />
-              <Route path="/gigs/:id" element={<GigDetails />} />
-              <Route path="/manage-gig/:id" element={<ManageGig />} />
-              <Route path="/proposals" element={<Proposals />} />
-              <Route path="/my-proposals" element={<MyProposals />} />
-              <Route path="/admin" element={<AdminDashboard />} />
-              <Route path="/profile/freelancer" element={<FreelancerProfileView />} />
-              
-              {/* 🌟 MOVED HERE: Now it correctly uses the PrivateRoute Outlet */}
-              <Route path="/transactions" element={<TransactionHistory />} />
-            </Route>
-          </Routes>
-        </main>
-      </div>
-    </Router>
+              {/* Protected Routes Namespace Framework */}
+              <Route element={<PrivateRoute />}>
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/overview" element={<Overview />} />
+                <Route path="/my-work" element={<MyWork />} />
+                <Route
+                  path="/verify-notice"
+                  element={<FreelancerApplyVerification />}
+                />
+                <Route path="/create-gig" element={<CreateGig />} />
+                <Route path="/marketplace" element={<Marketplace />} />
+                <Route path="/gigs/:id" element={<GigDetails />} />
+                <Route path="/manage-gig/:id" element={<ManageGig />} />
+                <Route path="/proposals" element={<Proposals />} />
+                <Route path="/my-proposals" element={<MyProposals />} />
+                <Route path="/admin" element={<AdminDashboard />} />
+                <Route
+                  path="/profile/freelancer"
+                  element={<FreelancerProfileView />}
+                />
+
+                {/* 🌟 MOVED HERE: Now it correctly uses the PrivateRoute Outlet */}
+                <Route path="/transactions" element={<TransactionHistory />} />
+              </Route>
+            </Routes>
+          </main>
+        </div>
+      </Router>
+    </>
   );
 }
 
 export default App;
-
-
-

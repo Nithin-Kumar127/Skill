@@ -24,6 +24,10 @@ import {
   markMessagesAsRead,
   markAsReadLocal
 } from "../features/messages/messageSlice";
+import { submitReview } from "../features/reviews/reviewSlice"; 
+
+// 🌟 NEW: Import the Public Profile Component to render inside the modal
+import PublicFreelancerProfile from "./PublicFreelancerProfile";
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -55,13 +59,24 @@ export default function ManageGig() {
   const [typedMessage, setTypedMessage] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
-  const [isUploading, setIsUploading] = useState(false); // 🌟 NEW: Upload state
+  const [isUploading, setIsUploading] = useState(false); 
+
+  // 🌟 NEW: Modal State for viewing a freelancer's profile directly in this window
+  const [viewProfileId, setViewProfileId] = useState(null);
+
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewForm, setReviewForm] = useState({
+    quality: 5,
+    communication: 5,
+    timeliness: 5,
+    text: ""
+  });
 
   const socketRef = useRef(null);
   const messageEndRef = useRef(null);
   const isChatOpenRef = useRef(isChatOpen);
   const typingTimeoutRef = useRef(null);
-  const fileInputRef = useRef(null); // 🌟 NEW: File input ref
+  const fileInputRef = useRef(null); 
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -156,7 +171,6 @@ export default function ManageGig() {
     setTypedMessage("");
   };
 
-  // 🌟 NEW: File Upload Handler
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -171,19 +185,16 @@ export default function ManageGig() {
       
       const response = await fetch(`${backendUrl}/api/upload`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
       const data = await response.json();
 
       if (response.ok && data.fileUrl) {
-        // Broadcast the file as a message via socket
         socketRef.current.emit("send_message", {
           gigId: id,
-          content: "", // Optional text attached to file
+          content: "", 
           fileUrl: data.fileUrl,
           fileType: data.fileType,
         });
@@ -195,13 +206,10 @@ export default function ManageGig() {
       alert("An error occurred while uploading the file.");
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ""; // Reset input
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ""; 
     }
   };
 
-  // ... (Keep existing Milestone & Proposal Handlers)
   const handleAcceptProposal = (proposalId) => {
     if (window.confirm("Accept this proposal and launch contract operations?")) {
       dispatch(acceptProposal(proposalId)).unwrap().then(() => {
@@ -276,6 +284,25 @@ export default function ManageGig() {
     }
   };
 
+  const handleReviewSubmit = (e) => {
+    e.preventDefault();
+    dispatch(submitReview({
+      gig: id,
+      qualityRating: reviewForm.quality,
+      communicationRating: reviewForm.communication,
+      timelinessRating: reviewForm.timeliness,
+      reviewText: reviewForm.text
+    }))
+      .unwrap()
+      .then((res) => {
+        alert(res.message || "Review submitted successfully!");
+        setShowReviewModal(false);
+      })
+      .catch((err) => {
+        alert("Failed to submit review: " + err);
+      });
+  };
+
   if (gigLoading || proposalsLoading) {
     return (
       <div className="mx-auto w-full max-w-4xl px-4 py-8 flex justify-center items-center h-48">
@@ -314,6 +341,28 @@ export default function ManageGig() {
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 relative min-h-screen pb-24">
       
+      {/* 🌟 PROFILE OVERLAY MODAL */}
+      {viewProfileId && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+          <div className="relative w-full max-w-4xl rounded-2xl bg-gray-50 shadow-2xl overflow-hidden my-8 max-h-[90vh] overflow-y-auto">
+            {/* Close Button placed specifically for the modal */}
+            <div className="sticky top-0 right-0 z-10 flex justify-end p-4 pointer-events-none">
+              <button 
+                onClick={() => setViewProfileId(null)}
+                className="pointer-events-auto bg-gray-900 text-white rounded-full h-8 w-8 flex items-center justify-center font-bold hover:bg-gray-700 shadow-md text-lg transition"
+                title="Close Profile"
+              >
+                &times;
+              </button>
+            </div>
+            {/* Render the profile component inside the modal. The negative margin pulls it up closer to the close button */}
+            <div className="-mt-12">
+              <PublicFreelancerProfile freelancerId={viewProfileId} hideBackButton={true} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CONTRACT WORKSPACE HEADER */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b pb-6 border-gray-200">
         <div>
@@ -329,7 +378,7 @@ export default function ManageGig() {
             </span>
           </div>
         </div>
-        <button onClick={() => navigate("/dashboard")} className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm hover:bg-gray-50 transition">
+        <button onClick={() => navigate("/dashboard")} className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm hover:bg-gray-50 transition cursor-pointer">
           ← Return to Dashboard
         </button>
       </div>
@@ -338,7 +387,6 @@ export default function ManageGig() {
         <div className="grid gap-6 lg:grid-cols-3 items-start">
           <div className="lg:col-span-2 space-y-6">
             
-            {/* LIVE TRACK PROGRESS BAR DISPLAY PANEL */}
             <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-lg animate-fadeIn">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-sm font-extrabold uppercase tracking-wider text-gray-400">📊 Overall Contract Progress</h3>
@@ -357,7 +405,6 @@ export default function ManageGig() {
               </p>
             </div>
 
-            {/* MILESTONE LOOP BLOCKS */}
             <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
               <div className="border-b border-gray-100 bg-gray-50/50 px-6 py-4">
                 <h2 className="text-md font-bold text-gray-900">Project milestones</h2>
@@ -406,7 +453,6 @@ export default function ManageGig() {
                         </div>
                       </div>
 
-                      {/* WORK DISPATCH METADATA DISPLAY */}
                       {(milestoneItem.paymentStatus === 'submitted' || milestoneItem.paymentStatus === 'completed') && (milestoneItem.submissionUrl || selectedGig.submissionUrl) && (
                         <div className="text-xs bg-gray-50 border border-gray-200/60 rounded-xl p-4 space-y-1.5 animate-fadeIn">
                           <p className="text-gray-700"><strong>Artifact URL:</strong> <a href={milestoneItem.submissionUrl || selectedGig.submissionUrl} target="_blank" rel="noreferrer" className="text-blue-600 font-medium underline break-all hover:text-blue-800">{milestoneItem.submissionUrl || selectedGig.submissionUrl}</a></p>
@@ -431,27 +477,53 @@ export default function ManageGig() {
             </div>
           </div>
 
-          {/* CONTRACT SUMMARY SIDEBAR */}
           <div className="space-y-6">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm text-xs space-y-3.5">
               <h4 className="font-bold text-gray-400 uppercase tracking-wider border-b pb-2">Contract Agreement</h4>
               <p className="text-gray-600"><strong>Hired Expert:</strong> <span className="font-semibold text-gray-900">{selectedGig.hiredFreelancer?.name || "Verified Freelancer"}</span></p>
               <p className="text-gray-600"><strong>Project Client:</strong> <span className="font-semibold text-gray-900">{selectedGig.user?.name || "Contract Owner"}</span></p>
               <p className="text-gray-600"><strong>Budget Ceiling:</strong> <span className="font-semibold text-gray-900">${selectedGig.maxPr}</span></p>
+              
+              {/* 🌟 NEW: View Expert Profile Button for Active/Completed Gigs */}
+              {selectedGig.hiredFreelancer?._id && (
+                <button 
+                  onClick={() => setViewProfileId(selectedGig.hiredFreelancer._id)}
+                  className="mt-3 w-full rounded-xl bg-gray-900 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-gray-800 transition cursor-pointer"
+                >
+                  View Expert Profile
+                </button>
+              )}
             </div>
+
+            {role === "client" && selectedGig.status === "completed" && (
+              <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm text-center">
+                <h4 className="font-bold text-blue-900 mb-2">Contract Completed!</h4>
+                <p className="text-xs text-blue-700 mb-4">How did the freelancer do? Leave a verified review to help them build their reputation.</p>
+                <button 
+                  onClick={() => setShowReviewModal(true)}
+                  className="w-full rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 transition cursor-pointer"
+                >
+                  ⭐ Rate Freelancer
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : (
-        
-        /* PROPOSAL SELECTION INTERFACE */
         <div className="bg-white border border-gray-200 shadow-sm rounded-2xl overflow-hidden p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Proposals Received</h2>
           {proposals && proposals.length > 0 ? (
             <div className="space-y-4">
               {proposals.map((proposal) => (
                 <div key={proposal._id} className={`border rounded-2xl p-4 transition ${proposal.status === 'rejected' ? 'border-gray-200 bg-gray-50 opacity-70' : 'border-gray-200/80 hover:border-gray-300'}`}>
+                  
                   <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="text-base font-bold text-gray-900">{proposal.freelancer?.name || "Anonymous Bidder"}</h3>
+                    <button 
+                      onClick={() => setViewProfileId(proposal.freelancer?._id)} 
+                      className="hover:underline cursor-pointer text-left"
+                    >
+                      <h3 className="text-base font-bold text-blue-600">{proposal.freelancer?.name || "Anonymous Bidder"}</h3>
+                    </button>
                     <span className={`rounded-xl px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide border ${
                       proposal.status === 'accepted' ? 'bg-green-50 text-green-700 border-green-200' :
                       proposal.status === 'rejected' ? 'bg-gray-100 text-gray-500 border-gray-200' :
@@ -462,6 +534,16 @@ export default function ManageGig() {
                     </span>
                   </div>
                   
+                  {/* 🌟 NEW: View Full Profile Button for pending proposals */}
+                  <div className="mb-3">
+                    <button 
+                      onClick={() => setViewProfileId(proposal.freelancer?._id)} 
+                      className="text-xs font-bold text-blue-600 hover:text-blue-800 transition cursor-pointer flex items-center gap-1"
+                    >
+                      👀 View Full Profile
+                    </button>
+                  </div>
+
                   <div className="flex gap-4 mb-3">
                     <p className="text-xs text-gray-500">Bid Amount: <span className="font-bold text-green-600">${proposal.bidAmount}</span></p>
                     <p className="text-xs text-gray-500">Timeline: <span className="font-bold text-blue-600">{proposal.estimatedCompletionTime || "Not specified"}</span></p>
@@ -534,7 +616,6 @@ export default function ManageGig() {
                           isMe ? "bg-blue-600 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none border border-gray-200"
                         }`}>
                           
-                          {/* 🌟 NEW: FILE ATTACHMENT RENDERING */}
                           {msg.fileUrl && (
                             <div className="mb-2">
                               {msg.fileType && msg.fileType.startsWith('image/') ? (
@@ -563,7 +644,6 @@ export default function ManageGig() {
                             <p className="leading-relaxed break-words font-medium">{msg.content}</p>
                           )}
                           
-                          {/* Read Receipts UI */}
                           {isMe && (
                             <div className="text-[9px] opacity-70 text-right mt-0.5 font-bold">
                               {msg.isRead ? "✓✓" : "✓"}
@@ -584,28 +664,15 @@ export default function ManageGig() {
                 <div ref={messageEndRef} />
               </div>
 
-              {/* Typing Indicator UI */}
               {isOtherTyping && (
                 <div className="px-4 py-1 text-[10px] italic text-gray-400">Other user is typing...</div>
               )}
 
               <form onSubmit={handleSendMessage} className="p-2 border-t border-gray-100 bg-white flex gap-2 shrink-0 items-center">
-                
-                {/* 🌟 NEW: HIDDEN FILE INPUT */}
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileUpload} 
-                  className="hidden" 
-                />
-                
-                {/* 🌟 NEW: PAPERCLIP UPLOAD BUTTON */}
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                 <button 
-                  type="button" 
-                  onClick={() => fileInputRef.current?.click()} 
-                  disabled={isUploading}
-                  className="text-gray-400 hover:text-blue-600 transition p-1.5 rounded-full hover:bg-blue-50 cursor-pointer disabled:opacity-50"
-                  title="Attach File"
+                  type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading}
+                  className="text-gray-400 hover:text-blue-600 transition p-1.5 rounded-full hover:bg-blue-50 cursor-pointer disabled:opacity-50" title="Attach File"
                 >
                   {isUploading ? (
                     <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -617,17 +684,10 @@ export default function ManageGig() {
                 </button>
 
                 <input 
-                  type="text"
-                  placeholder="Type your message here..."
-                  value={typedMessage}
-                  onChange={handleTyping}
+                  type="text" placeholder="Type your message here..." value={typedMessage} onChange={handleTyping}
                   className="flex-1 text-xs rounded-xl border border-gray-300 px-3 py-2.5 bg-white text-gray-900 outline-none focus:border-blue-500 font-medium"
                 />
-                <button 
-                  type="submit" 
-                  disabled={!typedMessage.trim() && isUploading}
-                  className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-700 transition shadow cursor-pointer disabled:opacity-50"
-                >
+                <button type="submit" disabled={!typedMessage.trim() && isUploading} className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-700 transition shadow cursor-pointer disabled:opacity-50">
                   Send
                 </button>
               </form>
@@ -635,6 +695,81 @@ export default function ManageGig() {
           )}
         </div>
       )}
+
+      {showReviewModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+            <div className="bg-blue-600 px-6 py-4">
+              <h3 className="text-lg font-bold text-white">Rate the Freelancer</h3>
+              <p className="text-blue-100 text-xs mt-1">Leave a verified review for {selectedGig.hiredFreelancer?.name}</p>
+            </div>
+            
+            <form onSubmit={handleReviewSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Quality of Work</label>
+                  <select 
+                    value={reviewForm.quality} 
+                    onChange={(e) => setReviewForm({...reviewForm, quality: Number(e.target.value)})}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-blue-500"
+                  >
+                    {[5,4,3,2,1].map(n => <option key={n} value={n}>{n} Stars</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Communication</label>
+                  <select 
+                    value={reviewForm.communication} 
+                    onChange={(e) => setReviewForm({...reviewForm, communication: Number(e.target.value)})}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-blue-500"
+                  >
+                    {[5,4,3,2,1].map(n => <option key={n} value={n}>{n} Stars</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Timeliness</label>
+                  <select 
+                    value={reviewForm.timeliness} 
+                    onChange={(e) => setReviewForm({...reviewForm, timeliness: Number(e.target.value)})}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-blue-500"
+                  >
+                    {[5,4,3,2,1].map(n => <option key={n} value={n}>{n} Stars</option>)}
+                  </select>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Written Feedback</label>
+                <textarea 
+                  required
+                  rows="3"
+                  placeholder="Describe your experience working with them..."
+                  value={reviewForm.text}
+                  onChange={(e) => setReviewForm({...reviewForm, text: e.target.value})}
+                  className="w-full rounded-xl border border-gray-300 p-3 text-sm outline-none focus:border-blue-500 resize-none"
+                ></textarea>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3 border-t border-gray-100 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setShowReviewModal(false)}
+                  className="rounded-xl px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-bold text-white hover:bg-blue-700 shadow-md transition cursor-pointer"
+                >
+                  Submit Verified Review
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

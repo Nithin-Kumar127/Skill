@@ -1,4 +1,4 @@
-// backend/server.js
+// backend/server.js // Add this near your other requires
 const http = require("http");
 require("dotenv").config();
 const express = require("express");
@@ -17,14 +17,20 @@ const reviewRoutes = require("./routes/reviewRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
+const reviewController = require("./controllers/reviewController");
 
 dotenv.config();
 
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: "http://localhost:5173", // Make sure this matches your exact frontend URL
+  credentials: true,
+}));
 app.use(express.json());
+// Expose the 'uploads' folder to the public
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
@@ -37,6 +43,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/api/reviews", require("./routes/reviewRoutes"));
 
 // Basic health/status endpoint (no feature logic)
 app.get("/api/status", (req, res) => {
