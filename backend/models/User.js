@@ -42,6 +42,7 @@ const userSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    
     // EMAIL VERIFICATION PROPERTIES
     isEmailVerified: {
       type: Boolean,

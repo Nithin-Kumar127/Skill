@@ -27,30 +27,34 @@ export default function FreelancerProfileView() {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const config = { headers: { Authorization: `Bearer ${user?.token}` } };
-        const response = await axios.get("http://localhost:5000/api/profile/freelancer", config);
+        const token = localStorage.getItem("token");
+        const config = { headers: { Authorization: `Bearer ${token}` } };
+        
+        const response = await axios.get("http://localhost:5000/api/auth/me", config);
         const dataPayload = response.data?.profile || response.data;
         
         if (dataPayload) {
+          // Ensure arrays are parsed cleanly to avoid malformed UI states
           setProfile({
-            skills: dataPayload.skills || [],
-            portfolioGallery: dataPayload.portfolioGallery || [],
+            skills: Array.isArray(dataPayload.skills) ? dataPayload.skills : [],
+            portfolioGallery: Array.isArray(dataPayload.portfolioGallery) ? dataPayload.portfolioGallery : [],
             resumeUrl: dataPayload.resumeUrl || "",
-            certifications: dataPayload.certifications || [],
-            workExperience: dataPayload.workExperience || [],
+            certifications: Array.isArray(dataPayload.certifications) ? dataPayload.certifications : [],
+            workExperience: Array.isArray(dataPayload.workExperience) ? dataPayload.workExperience : [],
             availability: dataPayload.availability || "open",
             hourlyRate: dataPayload.hourlyRate || 0,
             maxPr: dataPayload.maxPr || 0,
           });
         }
       } catch (error) {
+        console.error("Profile Fetch Error Details:", error.response?.data || error.message);
         toast.error("Could not synchronize freelancer profile metrics.");
       } finally {
         setIsLoading(false);
       }
     };
-    if (user?.token) fetchProfile();
-    else setIsLoading(false);
+    
+    fetchProfile();
   }, [user]);
 
   // --- STANDARD HANDLERS ---
@@ -82,9 +86,10 @@ export default function FreelancerProfileView() {
 
     try {
       setIsUploading(true);
+      const token = localStorage.getItem("token");
       const config = {
         headers: { 
-          Authorization: `Bearer ${user?.token}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data" 
         }
       };
@@ -100,6 +105,7 @@ export default function FreelancerProfileView() {
         toast.success("Portfolio item added!");
       }
     } catch (error) {
+      console.error("File Upload Error Details:", error.response?.data || error.message);
       toast.error("Failed to upload file.");
     } finally {
       setIsUploading(false);
@@ -108,12 +114,19 @@ export default function FreelancerProfileView() {
 
   const handleSubmitProfile = async (e) => {
     e.preventDefault();
+    console.log("Submit button caught. Submitting payload data:", profile);
+
     try {
-      const config = { headers: { Authorization: `Bearer ${user?.token}` } };
-      await axios.put("http://localhost:5000/api/profile/freelancer", profile, config);
+      const token = localStorage.getItem("token");
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      
+      const response = await axios.put("http://localhost:5000/api/profile/update", profile, config);
+      console.log("Server verification success:", response.data);
       toast.success("Professional profile records deployed!");
     } catch (error) {
-      toast.error("Failed to update profile details.");
+      // CRITICAL FIX: Logs exact backend error to your developer console panel
+      console.error("SERVER UPDATE REJECTION ERR:", error.response?.data || error.message);
+      toast.error(`Failed to update profile details: ${error.response?.data?.message || error.message}`);
     }
   };
 
@@ -184,9 +197,15 @@ export default function FreelancerProfileView() {
             <button type="button" onClick={handleAddSkill} className="bg-gray-900 text-white font-semibold text-sm px-5 py-2.5 rounded-xl h-[42px]">Add</button>
           </div>
           <div className="flex flex-wrap gap-2 pt-2">
-            {profile.skills.map((s, i) => (
-              <span key={i} className="bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-700">{s.name} ({s.proficiency})</span>
-            ))}
+            {profile.skills.map((s, i) => {
+              // Safety fallback check to prevent numeric / string structural breakdown layout issues
+              if (!s || typeof s !== 'object') return null;
+              return (
+                <span key={i} className="bg-blue-50 border border-blue-100 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-700">
+                  {s.name || JSON.stringify(s)} ({s.proficiency || "Specified"})
+                </span>
+              );
+            })}
           </div>
         </div>
 
@@ -209,16 +228,19 @@ export default function FreelancerProfileView() {
           <button type="button" onClick={handleAddWork} className="w-full sm:w-auto bg-gray-900 text-white font-semibold text-sm px-5 py-2.5 rounded-xl mt-2">Add Experience to Timeline</button>
           
           <div className="border-l-2 border-blue-100 pl-4 ml-2 mt-6 space-y-4">
-            {profile.workExperience.map((work, index) => (
-              <div key={index} className="relative">
-                <div className="absolute -left-[23px] top-1.5 h-3 w-3 rounded-full bg-blue-500 border-2 border-white"></div>
-                <h4 className="font-bold text-gray-900 text-sm">{work.title} at {work.company}</h4>
-                <p className="text-xs text-gray-500 font-mono mt-0.5">
-                  {new Date(work.startDate).toLocaleDateString()} - {work.endDate ? new Date(work.endDate).toLocaleDateString() : "Present"}
-                </p>
-                <p className="text-sm text-gray-600 mt-1">{work.description}</p>
-              </div>
-            ))}
+            {profile.workExperience.map((work, index) => {
+              if (!work) return null;
+              return (
+                <div key={index} className="relative">
+                  <div className="absolute -left-[23px] top-1.5 h-3 w-3 rounded-full bg-blue-500 border-2 border-white"></div>
+                  <h4 className="font-bold text-gray-900 text-sm">{work.title} at {work.company}</h4>
+                  <p className="text-xs text-gray-500 font-mono mt-0.5">
+                    {work.startDate ? new Date(work.startDate).toLocaleDateString() : ""} - {work.endDate ? new Date(work.endDate).toLocaleDateString() : "Present"}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">{work.description}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -238,6 +260,55 @@ export default function FreelancerProfileView() {
         </div>
 
       </form>
+      {/* ========================================================= */}
+        {/* 🌟 CLIENT REVIEWS & TESTIMONIALS MODULE                 */}
+        {/* ========================================================= */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-4">
+          <div className="border-b border-gray-100 pb-3">
+            <h3 className="text-sm font-bold uppercase text-gray-400 tracking-wider">⭐ Received Client Reviews</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Public testimonials left by your clients upon project milestones.</p>
+          </div>
+
+          {profile.reviews && profile.reviews.length > 0 ? (
+            <div className="divide-y divide-gray-100 space-y-4">
+              {profile.reviews.map((review, index) => (
+                <div key={index} className="pt-4 first:pt-0">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      {/* Render star counts dynamically based on rating values */}
+                      <div className="flex text-yellow-400 text-sm font-bold">
+                        {"★".repeat(Number(review.rating) || 5)}
+                        <span className="text-gray-300">{"★".repeat(5 - (Number(review.rating) || 5))}</span>
+                      </div>
+                      <span className="text-sm font-bold text-gray-900">
+                        {review.title || "Project Complete"}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-gray-400">
+                      {review.date ? new Date(review.date).toLocaleDateString() : ""}
+                    </span>
+                  </div>
+
+                  <p className="text-sm text-gray-600 mt-2 italic bg-gray-50 p-3 rounded-xl border border-gray-100">
+                    "{review.comment || "No written text provided."}"
+                  </p>
+                  
+                  <div className="mt-2 flex items-center gap-1.5 pl-1">
+                    <div className="h-2 w-2 rounded-full bg-green-500"></div>
+                    <span className="text-xs font-medium text-gray-500">
+                      Validated Client: <span className="font-semibold text-gray-700">{review.clientName || "Anonymous User"}</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+              <p className="text-sm text-gray-400 font-medium italic">No client reviews linked to this marketplace account yet.</p>
+            </div>
+          )}
+        </div>
     </div>
   );
+
 }

@@ -14,6 +14,9 @@ export default function AdminDashboard() {
   const [errorMessage, setErrorMessage] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState({});
 
+  // 🌟 CONFIGURATION: Set base backend gateway target safely
+  const API_BASE = "http://localhost:5000";
+
   // Fetch all administrative platform data segments
   const loadAdminDashboardData = async () => {
     setIsLoading(true);
@@ -24,10 +27,10 @@ export default function AdminDashboard() {
 
       // Dispatch parallel REST requests directly to your adminRoutes endpoints
       const [statsRes, usersRes, disputesRes, pendingRes] = await Promise.all([
-        axios.get("/api/admin/stats", config),
-        axios.get("/api/admin/users", config),
-        axios.get("/api/admin/disputes", config),
-        axios.get("/api/admin/verification/pending", config),
+        axios.get(`${API_BASE}/api/admin/stats`, config),
+        axios.get(`${API_BASE}/api/admin/users`, config),
+        axios.get(`${API_BASE}/api/admin/disputes`, config),
+        axios.get(`${API_BASE}/api/admin/verification/pending`, config),
       ]);
 
       setStats(statsRes.data);
@@ -54,7 +57,7 @@ export default function AdminDashboard() {
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
       
-      await axios.patch(`/api/admin/verification/${userId}`, { action: actionType }, config);
+      await axios.patch(`${API_BASE}/api/admin/verification/${userId}`, { action: actionType }, config);
       alert(`Freelancer successfully ${actionType === "approve" ? "verified" : "rejected"}.`);
       
       // Hot-reload array pools locally without forcing a heavy page repaint
@@ -62,6 +65,23 @@ export default function AdminDashboard() {
       loadAdminDashboardData();
     } catch (error) {
       alert("Verification update failed: " + (error.response?.data?.message || error.message));
+    }
+  };
+
+  // 🌟 ADDED: Handler to suspend or reinstate any platform profile instantly
+  const handleToggleSuspension = async (userId, currentSuspensionStatus) => {
+    const action = currentSuspensionStatus ? "unsuspend" : "suspend";
+    if (!window.confirm(`Are you sure you want to ${action} this account user?`)) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const config = { headers: { Authorization: `Bearer ${token}` } };
+      
+      await axios.put(`${API_BASE}/api/admin/users/${userId}/${action}`, {}, config);
+      alert(`User profile execution successfully modified to: ${action}ed.`);
+      loadAdminDashboardData(); // Refresh current table states
+    } catch (error) {
+      alert(`Suspension adjustment failed: ${error.response?.data?.message || error.message}`);
     }
   };
 
@@ -77,7 +97,7 @@ export default function AdminDashboard() {
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
       
-      await axios.patch(`/api/admin/disputes/${disputeId}/resolve`, { adminNotes: notes }, config);
+      await axios.patch(`${API_BASE}/api/admin/disputes/${disputeId}/resolve`, { adminNotes: notes }, config);
       alert("Dispute closed and resolved successfully.");
       
       setResolutionNotes(prev => ({ ...prev, [disputeId]: "" }));
@@ -274,12 +294,18 @@ export default function AdminDashboard() {
                     <th className="p-3">Email Address</th>
                     <th className="p-3">Designated Role</th>
                     <th className="p-3">Verification Pipeline Status</th>
+                    <th className="p-3 text-right">Moderation Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.map((item) => (
                     <tr key={item._id} className="border-b hover:bg-gray-50/50 transition">
-                      <td className="p-3 font-semibold text-gray-900">{item.name}</td>
+                      <td className="p-3">
+                        <span className="font-semibold text-gray-900">{item.name}</span>
+                        {item.isSuspended && (
+                          <span className="ml-2 text-[10px] font-bold tracking-tight text-red-600 uppercase bg-red-50 px-1.5 py-0.5 rounded border border-red-100">Suspended</span>
+                        )}
+                      </td>
                       <td className="p-3 text-gray-600">{item.email}</td>
                       <td className="p-3 font-medium uppercase text-gray-500 text-[10px] tracking-wide">{item.role}</td>
                       <td className="p-3">
@@ -290,6 +316,19 @@ export default function AdminDashboard() {
                         }`}>
                           {item.verificationStatus || "unapplied"}
                         </span>
+                      </td>
+                      {/* 🌟 ADDED: Direct Suspend Account trigger panel row */}
+                      <td className="p-3 text-right">
+                        <button 
+                          onClick={() => handleToggleSuspension(item._id, item.isSuspended)} 
+                          className={`rounded-lg px-2.5 py-1.5 font-bold transition text-[11px] border ${
+                            item.isSuspended 
+                              ? "bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100" 
+                              : "bg-red-50 text-red-700 border-red-100 hover:bg-red-100"
+                          }`}
+                        >
+                          {item.isSuspended ? "Reactivate User" : "Suspend Account"}
+                        </button>
                       </td>
                     </tr>
                   ))}

@@ -7,7 +7,7 @@ const FreelancerProfile = require("../models/FreelancerProfile");
 const ClientProfile = require("../models/ClientProfile");
 const generateToken = require("../utils/generateToken");
 const { sendAutomatedEmail } = require("../config/mail");
-
+const Review = require("../models/Review");
 const BCRYPT_SALT_ROUNDS = 12;
 
 function buildPublicUser(userDoc) {
@@ -209,6 +209,7 @@ async function verify2FA(req, res) {
 
 /**
  * Get current logged-in user (protected route).
+ * ✅ UPDATED: Now queries FreelancerProfile and populates linked reviews.
  */
 async function getCurrentUser(req, res) {
   try {
@@ -217,6 +218,15 @@ async function getCurrentUser(req, res) {
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
+
+    // 1. Convert the user's object ID to a clean string so it matches the 'id' field in your profile collection
+    const searchId = user._id.toString();
+
+    // 2. Fetch the deeper freelancer profile document matching your 'id' key layout
+    const extendedProfile = await FreelancerProfile.findOne({ id: searchId });
+
+    // 3. Query the Review collection for reviews that belong to this freelancer
+    const clientReviews = await Review.find({ freelancer: user._id }).sort({ createdAt: -1 });
 
     return res.status(200).json({
       id: user._id,
@@ -230,6 +240,19 @@ async function getCurrentUser(req, res) {
       skills: user.skills,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      
+      // 4. Bundle them together cleanly for the frontend page state
+      profile: extendedProfile ? {
+        skills: extendedProfile.skills || user.skills || [],
+        portfolioGallery: extendedProfile.portfolioGallery || [],
+        resumeUrl: extendedProfile.resumeUrl || "",
+        certifications: extendedProfile.certifications || [],
+        workExperience: extendedProfile.workExperience || [],
+        availability: extendedProfile.availability || "open",
+        hourlyRate: extendedProfile.hourlyRate || 0,
+        maxPr: extendedProfile.maxPr || 0,
+        reviews: clientReviews || [] 
+      } : null
     });
   } catch (error) {
     console.error("getCurrentUser Error Gateway:", error?.message || error);

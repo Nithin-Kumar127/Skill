@@ -163,6 +163,38 @@ async function updateFreelancerVerification(req, res) {
   }
 }
 
+/**
+ * 🌟 ADDED: Action handler to suspend or unsuspend any user account
+ * This matches your frontend call: /api/admin/users/:userId/:action
+ */
+async function toggleUserSuspension(req, res) {
+  try {
+    const { userId, action } = req.params; // action will be 'suspend' or 'unsuspend'
+
+    if (!["suspend", "unsuspend"].includes(action)) {
+      return res.status(400).json({ message: "Invalid action routing parameter." });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "Target marketplace account profile not found." });
+    }
+
+    // Set binary switch flag explicitly based on input parameter string
+    user.isSuspended = (action === "suspend");
+
+    await user.save();
+
+    return res.status(200).json({
+      message: `User account status successfully altered to: ${action}ed.`,
+      user: { _id: user._id, name: user.name, isSuspended: user.isSuspended }
+    });
+  } catch (error) {
+    console.error("toggleUserSuspension error:", error?.message || error);
+    return res.status(500).json({ message: "Failed to alter target account suspension states." });
+  }
+}
+
 module.exports = {
   getPlatformStats,
   getAllUsers,
@@ -170,4 +202,5 @@ module.exports = {
   resolveDispute,
   getPendingFreelancers,
   updateFreelancerVerification,
-};  
+  toggleUserSuspension, // 🌟 Make sure it is exported!
+};

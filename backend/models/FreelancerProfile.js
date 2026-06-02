@@ -96,6 +96,8 @@ const freelancerProfileSchema = new mongoose.Schema(
       default: 0,
       min: [0, "Review count cannot be negative"],
     },
+    smartRating: { type: Number, default: 0 },
+totalReviews: { type: Number, default: 0 }
   },
   {
     timestamps: true,

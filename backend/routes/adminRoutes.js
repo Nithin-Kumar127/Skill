@@ -6,8 +6,9 @@ const {
   getAllUsers,
   getAllDisputes,
   resolveDispute,
-  getPendingFreelancers,      // NEW: Verification pipeline controller action
-  updateFreelancerVerification // NEW: Verification approval/rejection handler
+  getPendingFreelancers,      
+  updateFreelancerVerification,
+  toggleUserSuspension // 🌟 ADDED: Import the suspension action handler
 } = require("../controllers/adminController");
 
 const router = express.Router();
@@ -22,11 +23,15 @@ router.get("/stats", getPlatformStats);
 // Global User Directory Management Route
 router.get("/users", getAllUsers);
 
+// 🌟 ADDED: Put endpoint to match your frontend toggle handler parameter:
+// This catches: http://localhost:5000/api/admin/users/:userId/suspend (or unsuspend)
+router.put("/users/:userId/:action", toggleUserSuspension);
+
 // Escrow Dispute Management and Resolution Routes
 router.get("/disputes", getAllDisputes);
 router.patch("/disputes/:id/resolve", resolveDispute);
 
-// NEW: Freelancer Profile Document Verification Processing Routes
+// Freelancer Profile Document Verification Processing Routes
 router.get("/verification/pending", getPendingFreelancers);
 router.patch("/verification/:userId", updateFreelancerVerification);
 

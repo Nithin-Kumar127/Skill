@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useParams, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
+import axios from "axios"; // 🌟 IMPORTED for sending review actions directly
 import {
   fetchGigById,
   getGigs,
@@ -55,13 +56,20 @@ export default function ManageGig() {
   const [typedMessage, setTypedMessage] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
-  const [isUploading, setIsUploading] = useState(false); // 🌟 NEW: Upload state
+  const [isUploading, setIsUploading] = useState(false);
+
+  // 🌟 NEW: States for the Smart Review Feature
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [reviewSuccess, setReviewSuccess] = useState("");
+  const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
 
   const socketRef = useRef(null);
   const messageEndRef = useRef(null);
   const isChatOpenRef = useRef(isChatOpen);
   const typingTimeoutRef = useRef(null);
-  const fileInputRef = useRef(null); // 🌟 NEW: File input ref
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
@@ -156,7 +164,6 @@ export default function ManageGig() {
     setTypedMessage("");
   };
 
-  // 🌟 NEW: File Upload Handler
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -171,19 +178,16 @@ export default function ManageGig() {
       
       const response = await fetch(`${backendUrl}/api/upload`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
       const data = await response.json();
 
       if (response.ok && data.fileUrl) {
-        // Broadcast the file as a message via socket
         socketRef.current.emit("send_message", {
           gigId: id,
-          content: "", // Optional text attached to file
+          content: "", 
           fileUrl: data.fileUrl,
           fileType: data.fileType,
         });
@@ -195,13 +199,10 @@ export default function ManageGig() {
       alert("An error occurred while uploading the file.");
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ""; // Reset input
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  // ... (Keep existing Milestone & Proposal Handlers)
   const handleAcceptProposal = (proposalId) => {
     if (window.confirm("Accept this proposal and launch contract operations?")) {
       dispatch(acceptProposal(proposalId)).unwrap().then(() => {
@@ -273,6 +274,35 @@ export default function ManageGig() {
           alert("Milestone approved and closed.");
           dispatch(fetchGigById(id));
         }).catch((err) => alert("Approval validation failed: " + err));
+    }
+  };
+
+  // 🌟 NEW: Handles the review submittal hitting your custom backend engine
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    setReviewError("");
+    setReviewSuccess("");
+    setIsReviewSubmitting(true);
+
+    try {
+      const token = localStorage.getItem("token");
+      const backendUrl = import.meta.env?.VITE_API_URL || "http://localhost:5000";
+      
+      const response = await axios.post(`${backendUrl}/api/reviews`, {
+        gigId: id,
+        rating: reviewRating,
+        comment: reviewComment.trim()
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setReviewSuccess(response.data?.message || "Smart Reputation verification calculated successfully!");
+      setReviewComment("");
+      dispatch(fetchGigById(id)); // Refetch changes securely
+    } catch (err) {
+      setReviewError(err.response?.data?.message || "Failed to transmit profile evaluation metrics.");
+    } finally {
+      setIsReviewSubmitting(false);
     }
   };
 
@@ -439,6 +469,58 @@ export default function ManageGig() {
               <p className="text-gray-600"><strong>Project Client:</strong> <span className="font-semibold text-gray-900">{selectedGig.user?.name || "Contract Owner"}</span></p>
               <p className="text-gray-600"><strong>Budget Ceiling:</strong> <span className="font-semibold text-gray-900">${selectedGig.maxPr}</span></p>
             </div>
+
+            {/* 🌟 NEW: VERIFIED CONTRACT SMART REVIEW FORM BLOCK */}
+            {selectedGig.status === "completed" && role === "client" && (
+              <div className="rounded-2xl border border-purple-200 bg-purple-50/40 p-5 shadow-md text-xs space-y-4 animate-fadeIn">
+                <div className="border-b border-purple-100 pb-2">
+                  <h4 className="font-extrabold text-purple-900 uppercase tracking-wide">⭐ Leave Expert Feedback</h4>
+                  <p className="text-[10px] text-purple-600 font-medium mt-0.5">Your review runs natively through our Smart Reputation Algorithm.</p>
+                </div>
+
+                {reviewError && <p className="text-red-700 bg-red-50 border border-red-200 p-2 rounded-xl font-bold">{reviewError}</p>}
+                {reviewSuccess && <p className="text-green-700 bg-green-50 border border-green-200 p-2 rounded-xl font-bold">{reviewSuccess}</p>}
+
+                {!reviewSuccess && (
+                  <form onSubmit={handleReviewSubmit} className="space-y-3.5">
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">Star Performance Metric</label>
+                      <select 
+                        value={reviewRating} 
+                        onChange={(e) => setReviewRating(Number(e.target.value))}
+                        className="w-full text-xs rounded-xl border border-gray-300 bg-white px-2.5 py-2 font-semibold text-gray-800 outline-none focus:border-purple-500"
+                      >
+                        <option value="5">⭐⭐⭐⭐⭐ 5/5 - Perfect Scope</option>
+                        <option value="4">⭐⭐⭐⭐ 4/5 - Exceeded Benchmarks</option>
+                        <option value="3">⭐⭐⭐ 3/5 - Solid Alignment</option>
+                        <option value="2">⭐⭐ 2/5 - Minor Deliverable Gaps</option>
+                        <option value="1">⭐ 1/5 - Out of Scope / Failed</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">Public Evaluation Remarks</label>
+                      <textarea
+                        rows={3}
+                        required
+                        placeholder="Detail performance metrics, engineering standards, or code quality highlights..."
+                        value={reviewComment}
+                        onChange={(e) => setReviewComment(e.target.value)}
+                        className="w-full text-xs rounded-xl border border-gray-300 bg-white p-2.5 outline-none resize-none focus:border-purple-500 font-medium"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isReviewSubmitting}
+                      className="w-full rounded-xl bg-purple-600 px-4 py-2.5 font-bold text-white shadow hover:bg-purple-700 transition cursor-pointer disabled:bg-gray-300"
+                    >
+                      {isReviewSubmitting ? "Locking Escrow Feedback..." : "Transmit Smart Review"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -534,7 +616,6 @@ export default function ManageGig() {
                           isMe ? "bg-blue-600 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none border border-gray-200"
                         }`}>
                           
-                          {/* 🌟 NEW: FILE ATTACHMENT RENDERING */}
                           {msg.fileUrl && (
                             <div className="mb-2">
                               {msg.fileType && msg.fileType.startsWith('image/') ? (
@@ -563,7 +644,6 @@ export default function ManageGig() {
                             <p className="leading-relaxed break-words font-medium">{msg.content}</p>
                           )}
                           
-                          {/* Read Receipts UI */}
                           {isMe && (
                             <div className="text-[9px] opacity-70 text-right mt-0.5 font-bold">
                               {msg.isRead ? "✓✓" : "✓"}
@@ -584,14 +664,11 @@ export default function ManageGig() {
                 <div ref={messageEndRef} />
               </div>
 
-              {/* Typing Indicator UI */}
               {isOtherTyping && (
                 <div className="px-4 py-1 text-[10px] italic text-gray-400">Other user is typing...</div>
               )}
 
               <form onSubmit={handleSendMessage} className="p-2 border-t border-gray-100 bg-white flex gap-2 shrink-0 items-center">
-                
-                {/* 🌟 NEW: HIDDEN FILE INPUT */}
                 <input 
                   type="file" 
                   ref={fileInputRef} 
@@ -599,7 +676,6 @@ export default function ManageGig() {
                   className="hidden" 
                 />
                 
-                {/* 🌟 NEW: PAPERCLIP UPLOAD BUTTON */}
                 <button 
                   type="button" 
                   onClick={() => fileInputRef.current?.click()} 
